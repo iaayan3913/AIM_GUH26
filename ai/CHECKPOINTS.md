@@ -6,7 +6,7 @@ Status key: ⬜ not started · 🟨 in progress · ✅ done · ❌ blocked (writ
 | # | Checkpoint | Done when | Target | Status | Notes |
 |---|---|---|---|---|---|
 | A0 | QVAC installed | `npx qvac doctor` passes on the Vivobook (Node ≥ 22.17). Note whether Vulkan GPU or CPU is used | 13:45 | ✅ | `npx @qvac/cli doctor` passes (Node 22.22, SDK 0.23). **Vulkan GPU: Intel Iris Xe.** First worker start can exceed 30 s: set `QVAC_RPC_INIT_TIMEOUT_MS=180000`. Models in `ai/models` via `ai/qvac.config.js`; `node download.js` fetches all. Smoke test: Whisper tiny 1.2 s for 10 s clip, Llama 1B 7 s reply |
-| A1 | Transcribe English | `node test.js transcribe <english clip>` prints the text | 14:00 | ⬜ | |
+| A1 | Transcribe English | `node test.js transcribe <english clip>` prints the text | 14:00 | ✅ | `node test.js transcribe <wav>`: 15 s English clip in 10.5 s incl. model load (Whisper small q8, Vulkan). Default model is large-v3-turbo (`FOBE_ASR` env to override) |
 | A2 | Mixed-language transcript | `demo-visit.wav` → `{ original, english, segments }`, Urdu/Bengali lines translated to English | 14:45 | ⬜ | |
 | A3 | Draft care plan | transcript + typed notes → valid JSON matching `shared/careplan.example.json`; medication = `missing` when only the recording is used | 15:15 | ⬜ | |
 | A4 | Cache for demo | every result saved to `ai/cache/<input-name>.json`; `--use-cache` flag returns it instantly (backup if live inference is slow) | 15:30 | ⬜ | |

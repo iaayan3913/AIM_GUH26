@@ -1,0 +1,19 @@
+{
+  "language": "en",
+  "original": "Ioann's date of birth is 14 March 2017. He loves trains and swimming. He is allergic to eggs, he gets a rash. He only eats halal food.",
+  "english": "Ioann's date of birth is 14 March 2017. He loves trains and swimming. He is allergic to eggs, he gets a rash. He only eats halal food.",
+  "segments": [
+    {
+      "start": 0,
+      "end": 10.639999389648438,
+      "text": "Ioann's date of birth is 14 March 2017. He loves trains and swimming. He is allergic to eggs,",
+      "english": "Ioann's date of birth is 14 March 2017. He loves trains and swimming. He is allergic to eggs,"
+    },
+    {
+      "start": 10.639999389648438,
+      "end": 15.039999961853027,
+      "text": "he gets a rash. He only eats halal food.",
+      "english": "he gets a rash. He only eats halal food."
+    }
+  ]
+}

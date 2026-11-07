@@ -1,0 +1,255 @@
+// FOBE /ai module: see shared/CONTRACT.md. 100% local inference via QVAC.
+import { fileURLToPath } from 'node:url'
+import { readFile, writeFile, mkdir } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { basename, join } from 'node:path'
+import { createHash } from 'node:crypto'
+
+const here = (p) => fileURLToPath(new URL(p, import.meta.url))
+process.env.QVAC_CONFIG_PATH ??= here('./qvac.config.js')
+process.env.QVAC_RPC_INIT_TIMEOUT_MS ??= '180000' // first worker start can be slow on Windows
+const q = await import('@qvac/sdk')
+
+const ASR_MODEL = process.env.FOBE_ASR || 'WHISPER_LARGE_V3_TURBO'
+const LLM_MODEL = process.env.FOBE_LLM || 'QWEN3_4B_INST_Q4_K_M'
+const CACHE_DIR = here('./cache')
+const noop = () => {}
+
+// ---------- cache (A4) ----------
+export const useCache = () => process.argv.includes('--use-cache') || process.env.FOBE_USE_CACHE === '1'
+
+async function cached (key, fn) {
+  const file = join(CACHE_DIR, key + '.json')
+  if (useCache() && existsSync(file)) return JSON.parse(await readFile(file, 'utf8'))
+  const result = await fn()
+  await mkdir(CACHE_DIR, { recursive: true })
+  await writeFile(file, JSON.stringify(result, null, 2))
+  return result
+}
+
+// ---------- models (loaded once, kept warm) ----------
+const loaded = {}
+function model (name, modelConfig) {
+  loaded[name] ??= q.loadModel({ modelSrc: q[name], modelConfig }).catch((e) => { delete loaded[name]; throw e })
+  return loaded[name]
+}
+const asr = () => model(ASR_MODEL, { language: 'auto', translate: false, temperature: 0, contextParams: { use_gpu: true, flash_attn: true } })
+const llm = () => model(LLM_MODEL, { ctx_size: 4096, temp: 0, reasoning_budget: 0 })
+
+async function chat (system, user, schema) {
+  const run = q.completion({
+    modelId: await llm(),
+    history: [{ role: 'system', content: system + ' /no_think' }, { role: 'user', content: user }],
+    stream: true,
+    generationParams: { temp: 0, predict: 700, reasoning_budget: 0 },
+    ...(schema && { responseFormat: { type: 'json_schema', json_schema: { name: 'out', schema } } })
+  })
+  for await (const _ of run.events); // eslint-disable-line no-unused-vars
+  const text = (await run.final).contentText.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
+  return schema ? JSON.parse(text) : text
+}
+
+// ---------- transcribe (A1, A2) ----------
+const SCRIPTS = { ur: /[؀-ۿ]/, bn: /[ঀ-৿]/, hi: /[ऀ-ॿ]/ }
+const scriptOf = (t) => Object.keys(SCRIPTS).find((k) => SCRIPTS[k].test(t)) || 'en'
+
+export async function transcribe (audioPath, onProgress = noop) {
+  return cached('transcript-' + basename(audioPath), async () => {
+    onProgress('transcribing', 5)
+    const raw = await q.transcribe({ modelId: await asr(), audioChunk: audioPath, metadata: true })
+    const segments = []
+    for (const [i, s] of raw.entries()) {
+      const text = s.text.trim()
+      if (!text) continue
+      // shortcut: script-based detection; romanised Urdu/Bengali passes through untranslated.
+      const english = scriptOf(text) === 'en'
+        ? text
+        : await chat('Translate the user text (Urdu, Bengali, Hindi or mixed) into plain English. Reply with the translation only.', text)
+      segments.push({ start: s.startMs / 1000, end: s.endMs / 1000, text, english })
+      onProgress('translating', 50 + Math.round((50 * (i + 1)) / raw.length))
+    }
+    const langs = [...new Set(segments.map((s) => scriptOf(s.text)))]
+    return {
+      language: langs.join('+') || 'en',
+      original: segments.map((s) => s.text).join(' '),
+      english: segments.map((s) => s.english).join(' '),
+      segments
+    }
+  })
+}
+
+// ---------- draftCarePlan (A3, A7) ----------
+const SECTIONS = [
+  { name: 'identity', fields: {
+    first_name: "child's first name",
+    surname: "child's family name / surname (only if said)",
+    dob: 'date of birth, written as YYYY-MM-DD',
+    gender: 'only if explicitly stated with a word like boy/girl/male/female; pronouns alone are NOT enough',
+    ethnicity: 'only if explicitly stated (e.g. Pakistani, Bangladeshi)',
+    photo_consent: '"Yes" or "No" for consent to take PHOTOS of the child. Consent to RECORD the meeting is NOT photo consent',
+    emergency_contact: 'parent/carer name and phone number'
+  } },
+  { name: 'health', fields: {
+    diagnosis: 'medical diagnosis, only if explicitly stated',
+    medication: 'medicines the child takes. Write "None" ONLY if someone explicitly says no medication. If medication is never discussed, leave empty',
+    allergies: 'allergies and reaction, only if explicitly stated'
+  } },
+  { name: 'about_me', fields: {
+    hobbies_interests: 'things the child loves or enjoys doing',
+    watch_out: 'things to watch out for: triggers, what happens, what helps'
+  } },
+  { name: 'attributes', fields: {
+    physical_mobility: 'walking, mobility, running off, safety near roads',
+    communication_learning: 'how the child communicates and understands, languages understood',
+    emotional_social: 'emotional and social needs, how they calm down, play with others',
+    toileting_self_care: 'toilet training, help needed with self care',
+    dietary: 'diet and food needs (e.g. halal, foods eaten). Do not include allergies'
+  } }
+]
+const HEALTH = { diagnosis: /diagnos|\bdx\b/i, medication: /medic|\bmeds?\b|tablet|inhaler|dose/i, allergies: /allerg/i }
+
+const SYSTEM = 'You fill in one section of a disabled child\'s care plan from a family visit. Use ONLY facts stated in the SOURCE. ' +
+  'Never guess or infer. If a field is not stated, set value and quote to "". ' +
+  'quote = a few exact words copied from the SOURCE that support the value.'
+
+const norm = (s) => String(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+// fraction of the quote's words found in the source (small models paraphrase slightly)
+function quoteScore (quote, source) {
+  const words = norm(quote).split(' ').filter(Boolean)
+  if (!words.length) return 0
+  const src = ' ' + norm(source) + ' '
+  return words.filter((w) => src.includes(' ' + w + ' ')).length / words.length
+}
+
+const MISSING = () => ({ value: null, source: null, status: 'missing' })
+
+function leaf (key, value, quote, source) {
+  const v = Array.isArray(value) ? (value.length ? value : null) : String(value ?? '').trim()
+  if (!v || /^(not (stated|mentioned|specified)|unknown|n\/?a|none stated)$/i.test(v)) return MISSING()
+  const verified = quote && quoteScore(quote, source) >= 0.7
+  if (key in HEALTH) {
+    // never guess medication/allergies/diagnosis: no verifiable quote -> missing; not explicit -> needs_review
+    if (!verified) return MISSING()
+    return { value: v, source: quote, status: HEALTH[key].test(quote) ? 'filled' : 'needs_review' }
+  }
+  if (key === 'dob' && !(/^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(Date.parse(v)))) {
+    return { value: v, source: quote || null, status: 'needs_review' }
+  }
+  return { value: v, source: quote || null, status: verified ? 'filled' : 'needs_review' }
+}
+
+async function section ({ fields }, source) {
+  const props = Object.fromEntries(Object.keys(fields).map((k) => [k, {
+    type: 'object', properties: { value: { type: 'string' }, quote: { type: 'string' } }, required: ['value', 'quote'], additionalProperties: false
+  }]))
+  const list = Object.entries(fields).map(([k, d]) => `- ${k}: ${d}`).join('\n')
+  const out = await chat(SYSTEM, `SOURCE:\n<<<\n${source}\n>>>\n\nFields:\n${list}\n\nReply as JSON.`,
+    { type: 'object', properties: props, required: Object.keys(fields), additionalProperties: false })
+  return Object.fromEntries(Object.keys(fields).map((k) => [k, leaf(k, out[k]?.value, out[k]?.quote, source)]))
+}
+
+async function listSection (source, itemDesc, itemProps) {
+  const schema = {
+    type: 'object',
+    properties: { items: { type: 'array', maxItems: 6, items: {
+      type: 'object', properties: { ...Object.fromEntries(itemProps.map((p) => [p, { type: 'string' }])), quote: { type: 'string' } },
+      required: [...itemProps, 'quote'], additionalProperties: false
+    } } },
+    required: ['items'], additionalProperties: false
+  }
+  const out = await chat(SYSTEM, `SOURCE:\n<<<\n${source}\n>>>\n\nList ${itemDesc}. Fields per item: ${itemProps.join(', ')}, quote. ` +
+    'Use an empty list if none are stated. Reply as JSON.', schema)
+  const items = (out.items || []).filter((it) => it[itemProps[0]]?.trim() && quoteScore(it.quote, source) >= 0.5)
+  if (!items.length) return MISSING()
+  const verified = items.every((it) => quoteScore(it.quote, source) >= 0.7)
+  return {
+    value: items.map(({ quote, ...rest }) => rest),
+    source: items.map((it) => `"${it.quote}"`).join('; '),
+    status: verified ? 'filled' : 'needs_review'
+  }
+}
+
+export async function draftCarePlan ({ childId, transcript, notes, existingPlan } = {}, onProgress = noop) {
+  const said = typeof transcript === 'string' ? transcript : transcript?.english
+  const source = [said && `RECORDING (translated to English):\n${said}`, notes && `WORKER'S NOTES:\n${notes}`].filter(Boolean).join('\n\n')
+  const key = 'plan-' + childId + '-' + createHash('sha1').update(source + JSON.stringify(existingPlan ?? null)).digest('hex').slice(0, 8)
+  return cached(key, async () => {
+    const draft = await buildPlan(childId, source, onProgress)
+    return existingPlan ? mergePlans(existingPlan, draft) : draft
+  })
+}
+
+async function buildPlan (childId, source, onProgress) {
+  const today = new Date().toISOString().slice(0, 10)
+  if (!source.trim()) throw new Error('draftCarePlan: need a transcript or notes')
+  const steps = SECTIONS.length + 2
+  const parts = {}
+  for (const [i, s] of SECTIONS.entries()) {
+    onProgress('drafting ' + s.name, Math.round((100 * i) / steps))
+    parts[s.name] = await section(s, source)
+  }
+  onProgress('drafting words_phrases', Math.round((100 * SECTIONS.length) / steps))
+  const words = await listSection(source, 'special words, sounds or signs the child uses and what each means', ['word_or_sign', 'meaning'])
+  onProgress('drafting challenging_behaviours', Math.round((100 * (SECTIONS.length + 1)) / steps))
+  const behaviours = await listSection(source, 'challenging behaviours, what triggers them and what calms them (control measures)', ['behaviour', 'triggers', 'control_measures'])
+  onProgress('done', 100)
+  const { identity: id, health: h } = parts
+  return {
+    child_id: childId,
+    last_updated: { value: today, source: 'AI draft from visit', status: 'filled' },
+    first_name: id.first_name,
+    surname: id.surname,
+    dob: id.dob,
+    gender: id.gender,
+    ethnicity: id.ethnicity,
+    photo_consent: id.photo_consent,
+    photo_path: null,
+    diagnosis: h.diagnosis,
+    medication: h.medication,
+    allergies: h.allergies,
+    emergency_contact: id.emergency_contact,
+    about_me: parts.about_me,
+    attributes: { ...parts.attributes, words_phrases: words },
+    challenging_behaviours: behaviours,
+    approved_by: null,
+    approved_at: null
+  }
+}
+
+// A7: keep every existing field unless the new draft actually found something for it.
+const isLeaf = (o) => o && typeof o === 'object' && 'status' in o && 'value' in o
+export function mergePlans (oldPlan, draft) {
+  const walk = (a, b) => {
+    if (isLeaf(b) || isLeaf(a)) return isLeaf(b) && b.status !== 'missing' ? b : (a ?? b)
+    if (b && typeof b === 'object' && !Array.isArray(b)) {
+      return Object.fromEntries([...new Set([...Object.keys(a || {}), ...Object.keys(b)])].map((k) => [k, walk(a?.[k], b[k])]))
+    }
+    return b ?? a
+  }
+  return { ...walk(oldPlan, draft), child_id: oldPlan.child_id ?? draft.child_id, photo_path: oldPlan.photo_path ?? null, approved_by: null, approved_at: null }
+}
+
+// ---------- lanyardText (A5) ----------
+export function lanyardText (plan, optIns = []) {
+  const val = (f) => (f && f.status !== 'missing' && f.value) || ''
+  const first = (s) => String(s).split(/[.;(]/)[0].trim()
+  const parts = [
+    [val(plan.first_name), optIns.includes('surname') && val(plan.surname)].filter(Boolean).join(' '),
+    optIns.includes('dob') && val(plan.dob) && 'DOB ' + val(plan.dob),
+    optIns.includes('diagnosis') && val(plan.diagnosis) && first(val(plan.diagnosis)),
+    optIns.includes('ethnicity') && val(plan.ethnicity),
+    val(plan.allergies) && !/^none/i.test(val(plan.allergies)) && 'ALLERGY: ' + first(val(plan.allergies)),
+    val(plan.emergency_contact) && 'Call ' + val(plan.emergency_contact),
+    val(plan.attributes?.communication_learning) && first(val(plan.attributes.communication_learning))
+  ].filter(Boolean)
+  // drop lowest-priority parts until it fits, then hard-trim as a last resort
+  while (parts.length > 1 && parts.join('. ').length > 130) parts.pop()
+  return parts.join('. ').slice(0, 130)
+}
+
+// ---------- ocrNotes (A6) ----------
+export async function ocrNotes (imagePath, onProgress = noop) {
+  throw new Error('ocrNotes not implemented yet (A6)')
+}
+
+export async function close () { await q.close?.() }
