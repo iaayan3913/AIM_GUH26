@@ -42,10 +42,15 @@ PHOTO CONSENT - YES
 MUM: AISHA 07700 900106
 NO MEDS - MUM CONFIRMED BY PHONE`
 
+// The mock can't really listen or read. It only "recognises" the demo files by name;
+// anything else comes back empty, so the draft is all "missing" (like the real AI with no information).
+const isDemoFile = (p) => /demo/i.test(String(p || '').split(/[\\/]/).pop())
+
 // transcribe(audioPath) -> { language, original, english, segments: [{ start, end, text, english }] }
 export async function transcribe (audioPath, onProgress) {
   onProgress?.('transcribing', 0)
   await steps(onProgress, 'transcribing', 2500, 10)
+  if (!isDemoFile(audioPath)) return { language: 'en', original: '', english: '', segments: [] }
   return {
     language: 'ur',
     original: SEGMENTS.map((s) => s.text).join(' '),
@@ -58,7 +63,7 @@ export async function transcribe (audioPath, onProgress) {
 export async function ocrNotes (imagePath, onProgress) {
   onProgress?.('reading notes', 0)
   await steps(onProgress, 'reading notes', 1200, 4)
-  return { text: DEMO_NOTES }
+  return { text: isDemoFile(imagePath) ? DEMO_NOTES : '' }
 }
 
 const F = (value, source, status = 'filled') => ({ value, source, status })

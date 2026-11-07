@@ -251,6 +251,12 @@ async function runVisit (job, { audio, photo, typed }) {
     }
     finish(w)
   }
+  if (audio && !(transcript?.english || transcript?.original || '').trim()) {
+    warnings.push('No speech about the child could be understood in the recording, so nothing was taken from it.')
+  }
+  if (photo && !ocrText.trim() && !warnings.some((w) => w.startsWith('The photo'))) {
+    warnings.push('No text could be read from the photo of the notes. Please type anything important from it.')
+  }
   const notes = [typed, ocrText].filter(Boolean).join('\n\n')
   const existingPlan = job.isNew ? undefined : (await db.getPlan(job.childId)) || undefined
   const w = stages.find((s) => s[0] === 'draft')[1]
@@ -259,7 +265,7 @@ async function runVisit (job, { audio, photo, typed }) {
   plan.approved_by = null
   plan.approved_at = null
 
-  job.result = { plan, transcript, notes, typed, ocrText, warnings, existed: !!existingPlan, seconds: Math.round((Date.now() - t0) / 1000) }
+  job.result = { plan, transcript, notes, typed, ocrText, warnings, ai: aiName, existed: !!existingPlan, seconds: Math.round((Date.now() - t0) / 1000) }
   Object.assign(job, { status: 'done', stage: 'Draft ready', detail: '', percent: 100 })
   console.log(`[visit] ${job.childId} drafted in ${job.result.seconds}s`)
 }

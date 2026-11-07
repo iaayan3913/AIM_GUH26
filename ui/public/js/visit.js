@@ -106,6 +106,7 @@ export async function renderReview (main, jobId) {
   main.innerHTML = `
     <h1>Review draft: ${esc(name)}</h1>
     <div class="notice">This is an AI draft. <strong>Nothing is saved yet.</strong> Amber fields were not clearly said, so the AI left them for you. It never guesses medication, allergies or diagnosis.${seconds != null ? ` <span class="muted">Drafted on this PC in ${seconds} s.</span>` : ''}</div>
+    ${job.result.ai === 'mock' ? '<div class="notice red"><strong>Test AI (mock) is running on this PC.</strong> It does not listen to recordings or read photos: it only knows the demo files. Real drafts need the QVAC AI (office PC).</div>' : ''}
     ${warnings.map((w) => `<div class="notice amber">${esc(w)}</div>`).join('')}
     <div id="flags">${flagSummary(plan)}</div>
     <div class="review-layout">
