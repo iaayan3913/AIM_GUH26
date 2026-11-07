@@ -126,6 +126,16 @@ async function queueFile (filePath, kind, { id, child = null, visitId = null } =
 
 const app = express()
 app.use(express.static(path.join(HERE, 'public')))
+// FOBE logo: local only, never committed (same files the office UI uses). Text fallback in the page if absent.
+app.get('/brand/logo', (req, res) => {
+  const root = path.join(HERE, '..', '..')
+  const file = [...['fobe-logo.png', 'fobe-logo.webp', 'fobe-logo.jpeg', 'fobe-logo.jpg'].map(f => path.join(root, 'ui', 'private', f)), path.join(root, 'FOBE logo.png')]
+    .find(f => fs.existsSync(f))
+  if (!file) return res.status(404).end()
+  const head = fs.readFileSync(file).subarray(0, 12)
+  const type = head.toString('latin1', 8, 12) === 'WEBP' ? 'image/webp' : head[0] === 0xff ? 'image/jpeg' : 'image/png'
+  res.type(type).sendFile(file)
+})
 app.use(express.json({ limit: '1mb' }))
 
 app.get('/api/status', (req, res) => {

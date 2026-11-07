@@ -230,3 +230,19 @@ video { width: 100%; border-radius: 12px; background: #000; margin-top: 12px; }
 .thumb-ic { object-fit: cover; border: 1px solid var(--line); padding: 0; }
 .list li .name-field { margin: 0; }
 .list li .name-field .input { padding: 8px 10px; font-size: 0.85rem; }
+
+/* ---------- FOBE logo header (logo colours sampled from the FOBE logo: cyan #00AEEE + magenta #EC008D) ---------- */
+:root { --fobe-cyan: #00AEEE; --fobe-magenta: #EC008D; }
+.top { background: #fff; color: var(--navy); box-shadow: 0 2px 12px rgba(0, 32, 96, .07); }
+.top-row { padding: 8px 16px 7px; }
+.brand { flex-direction: row; align-items: center; gap: 10px; }
+.brand-logo { height: 42px; width: auto; display: block; }
+.brand .brand-mark { color: var(--fobe-cyan); font-size: 1.7rem; letter-spacing: 0; text-transform: lowercase; }
+.brand-sub { color: var(--muted); font-weight: 650; font-size: .82rem; padding-left: 10px; border-left: 1px solid var(--line); opacity: 1; }
+.stripe { grid-template-columns: 1fr 1fr; }
+.stripe i:nth-child(1) { background: var(--fobe-cyan); }
+.stripe i:nth-child(2) { background: var(--fobe-magenta); }
+.pill-grey { background: var(--grey-bg); color: var(--muted); }
+.rec-banner { top: 62px; }
+.tabs a[aria-current="page"]::before { background: var(--fobe-magenta); }
+.badge { background: var(--fobe-magenta); }
