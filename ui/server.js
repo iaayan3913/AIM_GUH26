@@ -6,9 +6,19 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { openDb, ageFromDob, reviewDue } from '../sync/db.js'
 import { loadAi } from './ai-loader.js'
 import { mountAuth } from './auth.js'
+import { mountInbox } from './inbox.js'
+
+// Real sync module (DB + P2P). Falls back to the plain DB if the P2P deps aren't installed.
+let sync
+try {
+  sync = await import('../sync/index.js')
+} catch (e) {
+  console.warn(`[sync] P2P unavailable (${e.message}); using ../sync/db.js only. Fix: cd sync && npm install`)
+  sync = await import('../sync/db.js')
+}
+const { openDb, ageFromDob, reviewDue } = sync
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const PORT = Number(process.env.PORT) || 3000
@@ -91,7 +101,7 @@ const gate = mountAuth(app, { dataDir: DATA, port: PORT, db, wrap })
 
 // ---------- care plans ----------
 app.get('/api/status', (req, res) => {
-  res.json({ ok: true, ai: aiName, db: { writable: db.writable, key: db.key } })
+  res.json({ ok: true, ai: aiName, db: { writable: db.writable } })
 })
 
 app.get('/api/children', wrap(async (req, res) => {
@@ -131,19 +141,28 @@ async function nextChildId () {
 }
 
 // ---------- new visit -> AI draft ----------
+// Each upload gets its own folder and KEEPS its original file name (../ai caches by file name).
+const safeName = (n) => path.basename(String(n)).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 120) || 'file'
 const upload = multer({
   storage: multer.diskStorage({
-    destination: UPLOADS,
-    filename: (req, file, cb) => cb(null, `${Date.now()}-${crypto.randomBytes(3).toString('hex')}${path.extname(file.originalname).toLowerCase()}`)
+    destination: (req, file, cb) => {
+      req.uploadDir ??= path.join(UPLOADS, `${Date.now()}-${crypto.randomBytes(3).toString('hex')}`)
+      fs.mkdir(req.uploadDir, { recursive: true }, (e) => cb(e, req.uploadDir))
+    },
+    filename: (req, file, cb) => cb(null, safeName(Buffer.from(file.originalname, 'latin1').toString('utf8')))
   }),
   limits: { fileSize: 200 * 1024 * 1024 }
 })
 
+// Work phone inbox (P2P). Files from it are used by name, only from the inbox folder.
+const inbox = await mountInbox(app, { sync, db, gate, wrap, dataDir: DATA })
+const inboxPath = (name) => inbox.resolve(name)
+
 const jobs = new Map()
 
 app.post('/api/visits', gate, upload.fields([{ name: 'audio', maxCount: 1 }, { name: 'photo', maxCount: 1 }]), wrap(async (req, res) => {
-  const audio = req.files?.audio?.[0]?.path || req.body.audioPath || null
-  const photo = req.files?.photo?.[0]?.path || req.body.photoPath || null
+  const audio = req.files?.audio?.[0]?.path || inboxPath(req.body.audioPath)
+  const photo = req.files?.photo?.[0]?.path || inboxPath(req.body.photoPath)
   const typed = (req.body.notes || '').trim()
   if (!audio && !photo && !typed) return res.status(400).json({ error: 'Add a recording, a photo of your notes, or typed notes' })
 
@@ -154,20 +173,31 @@ app.post('/api/visits', gate, upload.fields([{ name: 'audio', maxCount: 1 }, { n
   const id = crypto.randomUUID()
   const job = { id, childId, isNew, status: 'running', stage: 'starting', percent: 0, result: null, error: null }
   jobs.set(id, job)
-  runVisit(job, { audio, photo, typed }).catch((e) => {
-    console.error('[visit]', e)
-    Object.assign(job, { status: 'error', error: e.message || String(e) })
+  if (busy) job.stage = 'Waiting for the previous draft to finish'
+  // One job at a time: the local models share the PC's CPU/GPU.
+  aiQueue = aiQueue.then(async () => {
+    busy = true
+    try {
+      await runVisit(job, { audio, photo, typed })
+    } catch (e) {
+      console.error('[visit]', e)
+      Object.assign(job, { status: 'error', error: e.message || String(e) })
+    } finally { busy = false }
   })
   res.json({ jobId: id })
 }))
+let aiQueue = Promise.resolve()
+let busy = false
 
 async function runVisit (job, { audio, photo, typed }) {
+  const t0 = Date.now()
   // Each stage gets a slice of the overall progress bar.
   const stages = [audio && ['transcribe', 50], photo && ['ocr', 15], ['draft', 35]].filter(Boolean)
   const total = stages.reduce((s, [, w]) => s + w, 0)
   let done = 0
   const progressFor = (weight, label) => (stage, pct) => {
-    job.stage = label || stage
+    job.stage = label
+    job.detail = stage && stage !== 'done' ? String(stage) : ''
     job.percent = Math.min(99, Math.round(((done + (weight * (pct || 0)) / 100) / total) * 100))
   }
   const finish = (w) => { done += w }
@@ -179,9 +209,16 @@ async function runVisit (job, { audio, photo, typed }) {
     finish(w)
   }
   let ocrText = ''
+  const warnings = []
   if (photo) {
     const w = stages.find((s) => s[0] === 'ocr')[1]
-    ocrText = (await ai.ocrNotes(photo, progressFor(w, 'Reading the photo of your notes')))?.text || ''
+    try {
+      ocrText = (await ai.ocrNotes(photo, progressFor(w, 'Reading the photo of your notes')))?.text || ''
+    } catch (e) {
+      // Not fatal: the recording / typed notes still make a draft.
+      console.warn('[ocr]', e.message)
+      warnings.push(`The photo of the notes could not be read (${e.message}). Please type anything important from it.`)
+    }
     finish(w)
   }
   const notes = [typed, ocrText].filter(Boolean).join('\n\n')
@@ -192,8 +229,9 @@ async function runVisit (job, { audio, photo, typed }) {
   plan.approved_by = null
   plan.approved_at = null
 
-  job.result = { plan, transcript, notes, typed, ocrText, existed: !!existingPlan }
-  Object.assign(job, { status: 'done', stage: 'Draft ready', percent: 100 })
+  job.result = { plan, transcript, notes, typed, ocrText, warnings, existed: !!existingPlan, seconds: Math.round((Date.now() - t0) / 1000) }
+  Object.assign(job, { status: 'done', stage: 'Draft ready', detail: '', percent: 100 })
+  console.log(`[visit] ${job.childId} drafted in ${job.result.seconds}s`)
 }
 
 app.get('/api/jobs/:id', (req, res) => {
@@ -215,6 +253,8 @@ const server = app.listen(PORT, '127.0.0.1', () => {
 
 async function shutdown () {
   server.close()
+  await inbox.close()
+  await ai.close?.().catch(() => {})
   await db.close().catch(() => {})
   process.exit(0)
 }

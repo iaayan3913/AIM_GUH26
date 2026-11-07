@@ -75,7 +75,7 @@ async function poll (main, jobId) {
     if (!document.body.contains(bar)) return // user navigated away
     const job = await api(`/api/jobs/${jobId}`)
     bar.value = job.percent
-    stage.textContent = `${job.stage} (${job.percent}%)`
+    stage.textContent = `${job.stage}${job.detail ? ` – ${job.detail}` : ''} (${job.percent}%)`
     if (job.status === 'done') { location.hash = `#/review/${jobId}`; return }
     if (job.status === 'error') {
       stage.innerHTML = `<span class="notice red" style="display:block">The draft could not be made: ${esc(job.error)}</span>`
@@ -88,12 +88,13 @@ async function poll (main, jobId) {
 export async function renderReview (main, jobId) {
   const job = await api(`/api/jobs/${jobId}`)
   if (job.status !== 'done') { location.hash = '#/visit'; return }
-  const { plan, transcript, notes, existed } = job.result
+  const { plan, transcript, notes, existed, warnings = [], seconds } = job.result
   const name = [plan.first_name?.value, plan.surname?.value].filter(Boolean).join(' ') || 'New child'
 
   main.innerHTML = `
     <h1>Review draft: ${esc(name)}</h1>
-    <div class="notice">This is an AI draft. <strong>Nothing is saved yet.</strong> Amber fields were not clearly said, so the AI left them for you. It never guesses medication, allergies or diagnosis.</div>
+    <div class="notice">This is an AI draft. <strong>Nothing is saved yet.</strong> Amber fields were not clearly said, so the AI left them for you. It never guesses medication, allergies or diagnosis.${seconds != null ? ` <span class="muted">Drafted on this PC in ${seconds} s.</span>` : ''}</div>
+    ${warnings.map((w) => `<div class="notice amber">${esc(w)}</div>`).join('')}
     <div id="flags">${flagSummary(plan)}</div>
     <div class="review-layout">
       <aside>
