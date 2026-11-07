@@ -1,7 +1,14 @@
-.venv/
-venv/
-ENV/
-env/
-__pycache__/
-*.py[cod]
-
+node_modules/
+data/
+models/
+*.gguf
+*.bin
+.env
+.DS_Store
+# demo media stays local (may contain voices)
+*.wav
+*.mp3
+*.m4a
+*.jpg
+*.png
+!ui/public/**/*.png
