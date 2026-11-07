@@ -51,5 +51,12 @@ export function reviewBadge (c) {
   return '<span class="badge grey">No review date</span>'
 }
 
-export const fullName = (p) => [p.first_name, p.surname].filter(Boolean).join(' ') || 'Unnamed child'
+// Signed-in family worker. ensure() / signOff() are filled in by auth.js (YubiKey).
+export const auth = {
+  user: null,
+  async ensure () { return true },
+  signOff: null
+}
+
+export const fullName =(p) => [p.first_name, p.surname].filter(Boolean).join(' ') || 'Unnamed child'
 export const initials = (p) => ((p.first_name || '?')[0] + ((p.surname || '')[0] || '')).toUpperCase()

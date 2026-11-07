@@ -1,11 +1,15 @@
 // FOBE Care Plans: tiny hash router. Everything is served from this PC.
 import { esc, toast } from './js/util.js'
 import { renderList } from './js/list.js'
+import { renderPlanPage } from './js/plan.js'
+import { renderPrint } from './js/print.js'
 
 const main = document.getElementById('main')
 
 const routes = [
-  [/^$/, renderList]
+  [/^$/, renderList],
+  [/^child\/([^/]+)$/, renderPlanPage],
+  [/^child\/([^/]+)\/print$/, renderPrint]
 ]
 
 async function route () {
