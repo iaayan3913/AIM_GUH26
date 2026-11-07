@@ -3,13 +3,17 @@ import { esc, toast } from './js/util.js'
 import { renderList } from './js/list.js'
 import { renderPlanPage } from './js/plan.js'
 import { renderPrint } from './js/print.js'
+import { renderVisit, renderReview } from './js/visit.js'
 
 const main = document.getElementById('main')
 
 const routes = [
   [/^$/, renderList],
   [/^child\/([^/]+)$/, renderPlanPage],
-  [/^child\/([^/]+)\/print$/, renderPrint]
+  [/^child\/([^/]+)\/print$/, renderPrint],
+  [/^visit$/, renderVisit],
+  [/^visit\/([^/]+)$/, renderVisit],
+  [/^review\/([^/]+)$/, renderReview]
 ]
 
 async function route () {

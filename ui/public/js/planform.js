@@ -157,6 +157,10 @@ export function renderPlan (container, plan, { mode = 'view', age = null } = {})
   }))
 
   if (editing) {
+    // Text boxes grow with their content so nothing is hidden.
+    const grow = (t) => { t.style.height = 'auto'; t.style.height = t.scrollHeight + 4 + 'px' }
+    requestAnimationFrame(() => container.querySelectorAll('textarea').forEach(grow))
+    container.addEventListener('input', (e) => { if (e.target.tagName === 'TEXTAREA') grow(e.target) })
     container.querySelectorAll('[data-add]').forEach((b) => b.addEventListener('click', () => {
       const table = container.querySelector(`[data-list="${b.dataset.add}"]`)
       table.tBodies[0].insertAdjacentHTML('beforeend', listRow(table.dataset.type))
