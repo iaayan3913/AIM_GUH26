@@ -43,6 +43,21 @@ assert.deepEqual(await readFile(got[0].path), await readFile(wav))
 assert.deepEqual(await readFile(got[1].path), await readFile(jpg))
 step(`B2 files: ${got.map(f => f.name).join(', ')} saved in inbox (from "${got[0].from}")`)
 
+// same name + same bytes again (rehearsal) -> reuses demo-visit.wav, no "(2)"
+const again = await timeout(sendFile(phone, wav), 20000, 'wav again')
+assert.equal(again.name, 'demo-visit.wav')
+assert.equal(got.length, 3)
+assert.equal(got[2].path, got[0].path)
+// same name, different bytes -> kept separately as "demo-visit (2).wav"
+await mkdir(path.join(root, 'other'), { recursive: true })
+const wav2 = path.join(root, 'other', 'demo-visit.wav')
+await writeFile(wav2, randomBytes(1000))
+const diff = await timeout(sendFile(phone, wav2), 20000, 'different wav')
+assert.equal(diff.name, 'demo-visit (2).wav')
+const { readdir } = await import('node:fs/promises')
+assert.deepEqual((await readdir(path.join(root, 'inbox'))).filter(n => !n.startsWith('.')).sort(), ['demo-visit (2).wav', 'demo-visit.wav', 'notes-photo.jpg'])
+step('B2 resending an identical file reuses it (cache-friendly); a different file with the same name becomes "(2)"')
+
 // replica
 assert.equal(phone.officeDbKey, db.key)
 const backup = await replicaDb(path.join(root, 'backup'), phone.officeDbKey, { bootstrap })
@@ -73,7 +88,6 @@ if (process.env.FOBE_DB_PASSPHRASE) {
   assert.equal(await blind.canRead(), false)
   await blind.close()
   await backup.close(); await phone.close(); await office.close(); await db.close()
-  const { readdir } = await import('node:fs/promises')
   for (const sub of ['office-pc', 'backup', 'blind', 'phone']) {
     for (const f of await readdir(path.join(root, sub), { recursive: true, withFileTypes: true })) {
       if (!f.isFile()) continue

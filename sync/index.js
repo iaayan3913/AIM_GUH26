@@ -30,6 +30,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { pipeline } from 'node:stream/promises'
+import { createHash } from 'node:crypto'
 import { openDb, keyFromPassphrase } from './db.js'
 
 export * from './db.js'
@@ -214,10 +215,21 @@ export async function startPeer ({ db = null, role, pairingKey = null, dir = nul
       if (!saved || !fs.existsSync(saved)) {
         const original = safeName(entry.value.metadata?.name || path.basename(entry.key).replace(/^\d+-/, ''))
         await fsp.mkdir(inboxDir, { recursive: true })
-        saved = uniquePath(inboxDir, original)
-        const tmp = saved + '.part'
+        const tmp = path.join(inboxDir, `.${Date.now()}-${original}.part`)
         await pipeline(drive.createReadStream(entry.key), fs.createWriteStream(tmp))
-        await fsp.rename(tmp, saved)
+        // Same name AND same bytes already in the inbox (e.g. demo-visit.wav sent again in a
+        // rehearsal): reuse it instead of making "name (2).ext", so the AI cache (keyed by
+        // file name) still hits. Touch it so it shows as just received.
+        const existing = path.join(inboxDir, original)
+        if (await sameFile(existing, tmp)) {
+          await fsp.rm(tmp, { force: true })
+          const now = new Date()
+          await fsp.utimes(existing, now, now)
+          saved = existing
+        } else {
+          saved = uniquePath(inboxDir, original)
+          await fsp.rename(tmp, saved)
+        }
         received[id] = saved
         fs.writeFileSync(receivedFile, JSON.stringify(received, null, 2))
         const info = { name: path.basename(saved), path: saved, from: r.name, size: entry.value.blob.byteLength, receivedAt: new Date().toISOString() }
@@ -317,6 +329,21 @@ function keepLookingWhile (swarm, discovery, cond, ms = 5000) {
     if (cond()) discovery.refresh({ server: false, client: true }).catch(() => {})
   }, ms)
   timer.unref()
+}
+
+async function sameFile (a, b) {
+  try {
+    const [sa, sb] = await Promise.all([fsp.stat(a), fsp.stat(b)])
+    if (!sa.isFile() || sa.size !== sb.size) return false
+    const digest = async (f) => {
+      const h = createHash('sha256')
+      await pipeline(fs.createReadStream(f), h)
+      return h.digest('hex')
+    }
+    return (await digest(a)) === (await digest(b))
+  } catch {
+    return false
+  }
 }
 
 function readIfExists (file) {
