@@ -59,6 +59,11 @@ if (cmd === 'transcribe') {
   assert.ok(ai.grounded('walks fine, runs off near trains', 'He walks fine, but he runs off if he sees a train'))
   assert.equal(ai.leaf('medication', 'None', 'NO MEDS - MUM CONFIRMED BY PHONE', notes).status, 'filled')
   assert.equal(ai.leaf('gender', 'Male', 'allergic to eggs', src, src, '"Male" or "Female", only if stated').status, 'filled')
+  const fobe = 'he likes fortnite. allergic to beef. has autism. doesnt like fowzan'
+  assert.equal(ai.leaf('dietary', 'halal', 'allergic to beef', fobe, fobe, 'diet and food needs (e.g. halal, foods eaten)').status, 'missing') // copied from the example
+  assert.equal(ai.leaf('diagnosis', 'Autism', 'has autism', fobe).status, 'filled')
+  assert.equal(ai.leaf('hobbies_interests', 'fortnite', 'he likes fortnite', fobe, fobe, 'things the child loves').status, 'filled')
+  assert.equal(ai.leaf('ethnicity', 'PAKISTANI', 'PAKISTANI', notes, notes, 'e.g. a word like PAKISTANI').status, 'filled') // real when the notes say it
   assert.equal(ai.leaf('physical_mobility', 'walking, mobility, running off', "allergic to eggs", src, src, 'walking, mobility, running off').status, 'missing')
   const plan = JSON.parse(await readFile(new URL('../shared/careplan.example.json', import.meta.url), 'utf8'))
   const lt = ai.lanyardText(plan)

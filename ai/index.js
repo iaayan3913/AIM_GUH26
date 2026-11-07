@@ -135,7 +135,7 @@ const SECTIONS = [
     dietary: 'diet and food needs (e.g. halal, foods eaten). Do not include allergies'
   } }
 ]
-const HEALTH = { diagnosis: /diagnos|\bdx\b/i, medication: /medic|\bmeds?\b|tablet|inhaler|dose/i, allergies: /allerg/i }
+const HEALTH = { diagnosis: /diagnos|\bdx\b|autis|\basd\b|adhd|palsy|epilep|syndrome|disorder|disabilit/i, medication: /medic|\bmeds?\b|tablet|inhaler|dose/i, allergies: /allerg/i }
 const MUST_MENTION = { photo_consent: /photo|picture/i } // else the model confuses recording consent with photo consent
 
 const SYSTEM = 'You fill in one section of a disabled child\'s care plan from a family visit. Use ONLY facts stated in the SOURCE. ' +
@@ -169,6 +169,8 @@ export function grounded (value, source) {
 }
 
 const MISSING = () => ({ value: null, source: null, status: 'missing' })
+// answers the model normalises ("BOY" -> "Male", "NO MEDS" -> "None"), so they need not appear in the source
+const NORMALISED = ['gender', 'medication', 'photo_consent']
 
 // trusted = source text that is NOT machine-translated (notes, English speech)
 export function leaf (key, value, quote, source, trusted = source, desc = '') {
@@ -176,6 +178,8 @@ export function leaf (key, value, quote, source, trusted = source, desc = '') {
   if (!v || /^(not (stated|mentioned|specified|known)|unknown|n\/?a|none stated|-)$/i.test(v)) return MISSING()
   // model echoed the field description (3+ words, so short answers like "Male"/"Yes" that the description lists still pass)
   if (desc && v.split(/\s+/).length >= 3 && quoteMatch(v, desc) === 'exact') return MISSING()
+  // a short answer copied from the field's own examples ("halal", "Pakistani") that the source never says is invented
+  if (desc && !NORMALISED.includes(key) && quoteMatch(v, source) === 'none' && quoteMatch(v, desc) !== 'none') return MISSING()
   const match = quoteMatch(quote, source)
   if (match === 'none') return MISSING() // never invent: no supporting quote = not stated
   if (!grounded(v, source)) return MISSING() // real quote, but the value itself was made up
