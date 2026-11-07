@@ -14,6 +14,9 @@ Status key: ⬜ not started · 🟨 in progress · ✅ done · ❌ blocked (writ
 | A6 | OCR handwritten notes (stretch) | photo of `demo-handwritten-notes` → text that's good enough for A3 | 16:00 | ✅ | Qwen3.5-4B vision (Q4_K_M + mmproj) reads a handwriting-font test image word-perfectly in ~90 s incl. model load (GPU). Transcript + photo → diagnosis Autism, gender Male, Pakistani, photo consent Yes, Mum (Aisha), medication None, surname Malik. Real photo not tested yet; typed notes are the fallback. Uses ~3 GB more RAM |
 | A7 | Update an existing plan (stretch) | `existingPlan` passed in → only changed fields updated, the rest kept | 16:15 | ✅ | `draftCarePlan({ ..., existingPlan })`: a new value replaces the old one only when the draft found something (status not missing); everything else is kept; approval is cleared. Unit-tested in `node test.js selftest` (not yet end-to-end with the UI) |
 
+## Offline check
+✅ 2026-11-07: `node test.js plan samples/demo-visit.wav` run on the Vivobook with **Wi-Fi off**: transcribe 35.9 s + draft 73.4 s, medication = missing, allergy (eggs) = needs_review. Nothing leaves the laptop.
+
 ## Timings measured (fill in, needed for the pitch)
 - Transcribe: 27 s Sylheti clip in ~30 s incl. load + translation (IndicConformer + Qwen3.5). Whisper turbo: 116 s English clip in 44 s
 - Draft care plan: 116 s cold / ~80 s warm (Qwen3-4B on CPU, 9.5 tok/s; GPU was slower at 7.7 tok/s)
