@@ -1,8 +1,8 @@
 // FOBE /ai module: see shared/CONTRACT.md. 100% local inference via QVAC.
 import { fileURLToPath } from 'node:url'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
-import { existsSync, statSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 
 const here = (p) => fileURLToPath(new URL(p, import.meta.url))
@@ -15,6 +15,8 @@ const ASR_MODEL = process.env.FOBE_ASR || 'PARAKEET_INDIC_CONFORMER_600M_Q8_0'
 const LLM_MODEL = process.env.FOBE_LLM || 'QWEN3_4B_INST_Q4_K_M'
 const CACHE_DIR = here('./cache')
 const noop = () => {}
+// cache by file CONTENT: a re-sent copy renamed "x (2).wav" still replays, a different recording never does
+const fileHash = (p) => createHash('sha1').update(readFileSync(p)).digest('hex').slice(0, 12)
 
 // ---------- cache (A4) ----------
 const useCache = () => process.argv.includes('--use-cache') || process.env.FOBE_USE_CACHE === '1'
@@ -81,7 +83,7 @@ const TRANSLATE = 'The user text is a parent speaking about their child, written
   'আওয়াজ = noise, হে/হ = he/she, অইলে/উইলে = when there is.'
 
 export async function transcribe (audioPath, onProgress = noop) {
-  return cached('transcript-' + basename(audioPath) + '-' + statSync(audioPath).size, async () => {
+  return cached('transcript-' + fileHash(audioPath), async () => {
     onProgress('transcribing', 5)
     const raw = await q.transcribe({ modelId: await asr(), audioChunk: audioPath, metadata: true })
     const segments = []
@@ -294,7 +296,7 @@ export function lanyardText (plan, optIns = []) {
 
 // ---------- ocrNotes (A6) ----------
 export async function ocrNotes (imagePath, onProgress = noop) {
-  return cached('ocr-' + basename(imagePath) + '-' + statSync(imagePath).size, async () => {
+  return cached('ocr-' + fileHash(imagePath), async () => {
     onProgress('loading vision model', 10)
     const modelId = await vlm()
     onProgress('reading notes', 40)

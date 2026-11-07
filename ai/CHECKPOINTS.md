@@ -30,7 +30,7 @@ const t = await ai.transcribe(wavPath, onProgress)            // ~45 s
 const n = await ai.ocrNotes(jpgPath, onProgress)              // ~90 s first time
 const plan = await ai.draftCarePlan({ childId, transcript: t, notes: n.text }, onProgress)  // ~80 s warm
 ```
-- Demo backup: start the server with `FOBE_USE_CACHE=1` (or `--use-cache`) → same recording/photo/notes replay from `ai/cache` instantly (any childId, with or without existingPlan). `ai/cache` is gitignored: it only exists on the Vivobook.
+- Demo backup: start the server with `FOBE_USE_CACHE=1` (or `--use-cache`) → same recording/photo/notes replay from `ai/cache` instantly (any childId, with or without existingPlan). Files are matched by **content**, so a re-sent copy renamed `demo-visit (2).wav` still hits the cache. `ai/cache` is gitignored: it only exists on the Vivobook.
 - CLI: `node test.js transcribe|plan|ocr|lanyard|selftest ...` (see top of test.js).
 - Env: `FOBE_ASR`, `FOBE_LLM` (e.g. `LLAMA_3_2_1B_INST_Q4_0` fallback), `FOBE_DEVICE=gpu|cpu`, `FOBE_DEBUG=1`.
 - Fresh machine: `node download.js` once with Wi-Fi on (~9 GB into ai/models).
