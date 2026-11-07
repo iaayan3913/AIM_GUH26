@@ -9,7 +9,7 @@ Status key: ⬜ not started · 🟨 in progress · ✅ done · ❌ blocked (writ
 | B1 | Pairing | `startPeer()` on two laptops on the same Wi-Fi connects via Hyperswarm using a pairing key; both print "peer connected" | 14:30 | ✅ (one laptop, 2 terminals) · 2-laptop pending | Pairing key = 80 random bits, shown as `xxxx-xxxx-xxxx-xxxx` (case/dashes ignored), saved so the phone pairs once. Topic = hash(key); each side proves it knows the key (hash of key + Noise handshake hash), otherwise the connection is dropped. Phone re-queries the DHT every 5 s while disconnected. Connects in ~2–6 s over the public DHT. |
 | B2 | Phone → office file transfer | "phone" laptop sends `demo-visit.wav` + notes photo, and the office receives it in `data/inbox/` through `onFileReceived` | 15:15 | ✅ (one laptop) | Phone writes files into its own Hyperdrive "outbox"; the office replicates it and copies new files to `sync/data/inbox/` (path is fixed to the sync folder, whatever the cwd). Files sent while the office is offline are queued and delivered on the next connection (good for the "Wi-Fi on" demo moment). Each file is delivered once (`data/inbox/.received.json`). |
 | B3 | Read-only backup replica | `replicaDb()` on laptop 2 shows the office's care plans and updates live when the office edits; writing to it is refused | 15:45 | ✅ (one laptop) | Phone gets the office DB key automatically after pairing. Replica downloads the full core, so it still works with the office off. `putPlan` throws "Read-only backup..."; raw Hyperbee writes also fail (not the writer). `onChange(cb)` fires on live updates. |
-| B4 | Venue Wi-Fi fallback | if peers can't find each other, run a local HyperDHT bootstrap on the LAN (or a hotspot) and document the exact command here | 16:00 | ⬜ | |
+| B4 | Venue Wi-Fi fallback | if peers can't find each other, run a local HyperDHT bootstrap on the LAN (or a hotspot) and document the exact command here | 16:00 | ✅ (one laptop) | `bootstrap.js` runs a private 3-node HyperDHT on the LAN (UDP 49737). Peers use it via `FOBE_BOOTSTRAP=ip:port` or `--bootstrap ip:port`, which replaces the public DHT entirely, so it works with no internet. Tested: pairing <1 s, file + live backup OK. Venue is **eduroam (Windows "Public" network)**, which usually blocks laptop-to-laptop traffic, so plan on the phone hotspot. See "Wi-Fi fallback" below. |
 | B5 | Encryption at rest (stretch) | the data folder isn't readable as plain text; document the method used | 16:15 | ⬜ | |
 
 ## Tests
@@ -37,6 +37,18 @@ cd sync; node demo-phone.js <PAIRING-KEY> --backup
 - B3: phone lists the 5 plans. Type `edit FOBE-CHILD-0002 allergies Peanuts` in the office terminal and the phone prints `>> backup updated live: Leo Bennett changed allergies`. Type `write` in the phone terminal to show the refusal.
 - Reset demo data afterwards: `npm run seed` (office). Phone data lives in `sync\data\phone\`; delete it to unpair.
 - Windows Firewall: click **Allow** for Node.js (Private networks) the first time.
+
+## Wi-Fi fallback (B4)
+Try the normal commands first. If `peer connected` doesn't appear within ~20 s:
+1. Put **both laptops on a phone hotspot** (eduroam usually isolates clients). No internet is needed after this.
+2. On the **office PC**, terminal 1: `cd sync; node bootstrap.js`. It prints its address, e.g. `192.168.43.10:49737`.
+3. Office PC, terminal 2: `cd sync; $env:FOBE_BOOTSTRAP="192.168.43.10:49737"; node demo-office.js`
+4. Work phone: `cd sync; $env:FOBE_BOOTSTRAP="192.168.43.10:49737"; node demo-phone.js <PAIRING-KEY> --backup`
+5. If the phone still can't connect, the office PC's firewall is blocking inbound UDP. In an **admin** PowerShell on the office PC, run
+   `New-NetFirewallRule -DisplayName "FOBE node" -Direction Inbound -Program (Get-Command node).Source -Action Allow -Profile Any`
+   (remove it afterwards with `Remove-NetFirewallRule -DisplayName "FOBE node"`). Check with `ping <office IP>` from the phone laptop.
+- Test on one laptop: terminal 1 `node bootstrap.js --host 127.0.0.1`, then add `--bootstrap 127.0.0.1:49737` to both demo commands.
+- For the UI: set `$env:FOBE_BOOTSTRAP` before `npm start`. `startPeer` and `replicaDb` read it automatically.
 
 ## For the UI (Person C): office side in ui/server.js
 ```js
