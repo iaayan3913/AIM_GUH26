@@ -4,7 +4,7 @@ process.env.QVAC_CONFIG_PATH ??= fileURLToPath(new URL('./qvac.config.js', impor
 const q = await import('@qvac/sdk')
 
 const names = process.argv.slice(2).length ? process.argv.slice(2)
-  : ['WHISPER_SMALL_Q8_0', 'WHISPER_LARGE_V3_TURBO', 'QWEN3_4B_INST_Q4_K_M', 'LLAMA_3_2_1B_INST_Q4_0']
+  : ['WHISPER_LARGE_V3_TURBO', 'QWEN3_4B_INST_Q4_K_M', 'QWEN3_5_4B_MULTIMODAL_Q4_K_M', 'MMPROJ_QWEN3_5_4B_MULTIMODAL_Q8_0', 'LLAMA_3_2_1B_INST_Q4_0']
 for (const n of names) {
   const t = Date.now()
   await q.downloadAsset({ assetSrc: q[n] })

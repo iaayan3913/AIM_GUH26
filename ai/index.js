@@ -39,11 +39,17 @@ const llm = () => model(LLM_MODEL, { ctx_size: 4096, temp: 0, reasoning_budget: 
 // Call at server start so the first request doesn't pay ~45 s of model loading.
 export async function warmup () { await Promise.all([asr(), llm()]) }
 
-async function chat (system, user, schema, kvCache) {
+// shortcut: separate vision model for OCR (~3 GB extra RAM); could replace Qwen3-4B entirely if A3 quality holds.
+const vlm = () => model('QWEN3_5_4B_MULTIMODAL_Q4_K_M', { ctx_size: 4096, reasoning_budget: 0, projectionModelSrc: q.MMPROJ_QWEN3_5_4B_MULTIMODAL_Q8_0 })
+
+async function chat (system, user, schema, kvCache, modelId) {
   const t = Date.now()
   const run = q.completion({
-    modelId: await llm(),
-    history: [{ role: 'system', content: system + ' /no_think' }, { role: 'user', content: user }],
+    modelId: modelId ?? await llm(),
+    history: [
+      ...(system ? [{ role: 'system', content: system + ' /no_think' }] : []),
+      typeof user === 'string' ? { role: 'user', content: user } : user
+    ],
     stream: true,
     generationParams: { temp: 0, predict: 700, reasoning_budget: 0 },
     ...(kvCache && { kvCache }),
@@ -88,13 +94,13 @@ export async function transcribe (audioPath, onProgress = noop) {
 // ---------- draftCarePlan (A3, A7) ----------
 const SECTIONS = [
   { name: 'identity', fields: {
-    first_name: "child's first name",
-    surname: "child's family name / surname (only if said)",
+    first_name: "child's first name. If the WORKER'S NOTES spell the name differently from the recording, use the notes",
+    surname: "child's family name / surname, e.g. the last word of the child's full name (only if written or said)",
     dob: 'date of birth, written as YYYY-MM-DD',
-    gender: 'only if explicitly stated with a word like boy/girl/male/female; pronouns alone are NOT enough',
+    gender: '"Male" or "Female", only if explicitly stated with a word like boy/girl/male/female; pronouns alone are NOT enough',
     ethnicity: 'only if explicitly stated (e.g. Pakistani, Bangladeshi)',
     photo_consent: '"Yes" or "No" for consent to take PHOTOS of the child. Consent to RECORD the meeting is NOT photo consent',
-    emergency_contact: 'parent/carer name and phone number'
+    emergency_contact: 'relationship, name and phone number, e.g. "Mum (Name) - 07700 900000"'
   } },
   { name: 'health', fields: {
     diagnosis: 'medical diagnosis, only if explicitly stated',
@@ -269,7 +275,18 @@ export function lanyardText (plan, optIns = []) {
 
 // ---------- ocrNotes (A6) ----------
 export async function ocrNotes (imagePath, onProgress = noop) {
-  throw new Error('ocrNotes not implemented yet (A6)')
+  return cached('ocr-' + basename(imagePath), async () => {
+    onProgress('loading vision model', 10)
+    const modelId = await vlm()
+    onProgress('reading notes', 40)
+    const text = await chat(null, {
+      role: 'user',
+      content: 'Transcribe the handwritten notes in this image exactly, line by line, keeping capitals and numbers. Output only the text. /no_think',
+      attachments: [{ path: imagePath }]
+    }, null, null, modelId)
+    onProgress('done', 100)
+    return { text }
+  })
 }
 
 export async function close () { await q.close?.() }
