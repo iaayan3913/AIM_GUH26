@@ -52,7 +52,7 @@ function modal (html) {
   return dlg
 }
 
-const KEY_HINT = '<p class="key-hint"><span aria-hidden="true">🔑</span> Plug your YubiKey into the USB-C port. When it blinks, touch the gold disc.</p>'
+const KEY_HINT = '<p class="key-hint"><svg class="ic" aria-hidden="true"><use href="#i-key"/></svg> Plug your YubiKey into the USB-C port. When it blinks, touch the gold disc.</p>'
 
 // Ask for a sign-in only when it's needed (edit / save / new visit).
 auth.ensure = async (reason = 'continue') => {

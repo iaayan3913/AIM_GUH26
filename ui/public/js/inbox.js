@@ -1,7 +1,8 @@
 // Files received from the work phone over Holepunch (peer-to-peer, no cloud).
 import { api, esc, fmtDateTime, toast, auth } from './util.js'
 
-const ICON = { audio: '🎙️', photo: '📷', text: '📝' }
+const svg = (id) => `<svg class="ic" aria-hidden="true"><use href="#i-${id}"/></svg>`
+const ICON = { audio: svg('mic'), photo: svg('image'), text: svg('note') }
 const LABEL = { audio: 'Recording', photo: 'Photo of notes', text: 'Typed notes' }
 const size = (b) => (b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1e3))} KB`)
 
@@ -45,7 +46,7 @@ export async function renderInbox (main) {
       <tbody>${d.files.map((f) => `
         <tr data-name="${esc(f.name)}" data-kind="${f.kind}">
           <td><input type="checkbox" aria-label="Select ${esc(f.name)}" style="width:24px;height:24px" ${selected.has(f.name) ? 'checked' : ''}></td>
-          <td><span aria-hidden="true">${ICON[f.kind]}</span> <strong>${esc(f.name)}</strong><span class="id">${LABEL[f.kind]} · ${size(f.size)}</span>
+          <td><span class="kind-ic kind-${f.kind}" aria-hidden="true">${ICON[f.kind]}</span> <strong>${esc(f.name)}</strong><span class="id">${LABEL[f.kind]} · ${size(f.size)}</span>
             ${f.usedFor ? `<span class="badge ok">Used${typeof f.usedFor === 'string' ? ` for ${esc(f.usedFor)}` : ''}</span>` : '<span class="badge amber">New</span>'}</td>
           <td>${esc(f.from)}</td>
           <td>${esc(fmtDateTime(f.receivedAt))}</td>

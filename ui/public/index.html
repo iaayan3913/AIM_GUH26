@@ -7,13 +7,25 @@
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
+  <!-- Icon set (inline SVG, no external libraries) -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-children" viewBox="0 0 24 24"><circle cx="9" cy="7" r="4"/><path d="M2 21a7 7 0 0 1 14 0"/><path d="M16 3.1a4 4 0 0 1 0 7.8M22 21a7 7 0 0 0-4-6.3"/></symbol>
+      <symbol id="i-visit" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="18" rx="2"/><path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/><path d="M12 10v6M9 13h6"/></symbol>
+      <symbol id="i-phone" viewBox="0 0 24 24"><rect x="6" y="2" width="12" height="20" rx="2"/><path d="M11 18h2"/></symbol>
+      <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v4M8 21h8"/></symbol>
+      <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></symbol>
+      <symbol id="i-note" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8M8 9h2"/></symbol>
+      <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/></symbol>
+    </defs>
+  </svg>
   <a class="skip" href="#main">Skip to content</a>
   <header class="topbar no-print">
-    <a class="brand" href="#/">FOBE Care Plans</a>
+    <a class="brand" href="#/"><span class="brand-mark">FOBE</span><span class="brand-sub">Care Plans</span></a>
     <nav aria-label="Main">
-      <a href="#/">Children</a>
-      <a href="#/visit">New visit</a>
-      <a href="#/inbox">From work phone <span id="inboxCount" class="badge-count" hidden></span></a>
+      <a href="#/"><svg class="ic" aria-hidden="true"><use href="#i-children"/></svg>Children</a>
+      <a href="#/visit"><svg class="ic" aria-hidden="true"><use href="#i-visit"/></svg>New visit</a>
+      <a href="#/inbox"><svg class="ic" aria-hidden="true"><use href="#i-phone"/></svg>From work phone <span id="inboxCount" class="badge-count" hidden></span></a>
     </nav>
     <div id="who" class="who"></div>
   </header>
