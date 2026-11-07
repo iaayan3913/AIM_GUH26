@@ -95,11 +95,13 @@ function markDelivered (drivePath, savedAs) {
   console.log('delivered', item.name)
 }
 
-async function queueFile (filePath, kind) {
+async function queueFile (filePath, kind, { id, child = null, visitId = null } = {}) {
   const item = {
-    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    id,
     name: path.basename(filePath),
     kind,
+    child,
+    visitId,
     size: fs.statSync(filePath).size,
     createdAt: new Date().toISOString(),
     drivePath: null,
@@ -140,16 +142,22 @@ app.post('/api/pair', async (req, res) => {
   }
 })
 
-// raw body upload: POST /api/files?name=visit.wav&kind=recording
+// raw body upload: POST /api/files?name=Ayaan-Malik_recording_2026-11-07_1.wav&kind=recording&child=Ayaan%20Malik&visit=<id>
 app.post('/api/files', express.raw({ type: () => true, limit: '500mb' }), async (req, res) => {
   try {
     if (!peer) return res.status(409).json({ error: 'Pair with the office PC first' })
     if (!req.body?.length) return res.status(400).json({ error: 'Empty file' })
     const name = safeName(String(req.query.name || 'file.bin'))
-    const kind = ['recording', 'photo', 'notes'].includes(req.query.kind) ? req.query.kind : 'file'
-    const filePath = uniquePath(capturesDir, name)
+    const kind = ['recording', 'audio', 'photo', 'notes'].includes(req.query.kind) ? req.query.kind : 'file'
+    const child = req.query.child ? String(req.query.child).slice(0, 80) : null
+    const visitId = req.query.visit ? String(req.query.visit).slice(0, 40) : null
+    // each upload in its own folder, so the exact chosen name reaches the office (no "(2)")
+    const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
+    const folder = path.join(capturesDir, id)
+    fs.mkdirSync(folder, { recursive: true })
+    const filePath = path.join(folder, name)
     fs.writeFileSync(filePath, req.body)
-    const item = await queueFile(filePath, kind)
+    const item = await queueFile(filePath, kind, { id, child, visitId })
     res.json({ ...publicItem(item) })
   } catch (err) {
     res.status(500).json({ error: err.message })
@@ -180,7 +188,7 @@ app.get('/api/backup', async (req, res) => {
   }
 })
 
-const publicItem = (i) => ({ id: i.id, name: i.name, kind: i.kind, size: i.size, createdAt: i.createdAt, deliveredAt: i.deliveredAt, status: i.error ? 'error' : statusOf(i), error: i.error || null })
+const publicItem = (i) => ({ id: i.id, name: i.name, kind: i.kind, child: i.child || null, visitId: i.visitId || null, size: i.size, createdAt: i.createdAt, deliveredAt: i.deliveredAt, status: i.error ? 'error' : statusOf(i), error: i.error || null })
 
 // ---------- start ----------
 
@@ -214,11 +222,7 @@ function sleep (ms) { return new Promise(resolve => setTimeout(resolve, ms)) }
 function readText (f) { try { return fs.readFileSync(f, 'utf-8').trim() || null } catch { return null } }
 function readJson (f) { try { return JSON.parse(fs.readFileSync(f, 'utf-8')) } catch { return null } }
 function writeJson (f, v) { fs.writeFileSync(f, JSON.stringify(v, null, 2)) }
-function safeName (n) { return path.basename(n).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 120) || 'file' }
-function uniquePath (folder, name) {
-  const ext = path.extname(name)
-  const base = name.slice(0, name.length - ext.length)
-  let p = path.join(folder, name)
-  for (let i = 2; fs.existsSync(p); i++) p = path.join(folder, `${base} (${i})${ext}`)
-  return p
+function safeName (n) {
+  const clean = path.basename(n).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').trim().slice(0, 120)
+  return clean && !/^\.+$/.test(clean) ? clean : 'file'
 }

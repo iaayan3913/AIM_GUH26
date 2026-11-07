@@ -2,117 +2,251 @@
 <html lang="en-GB">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#002060">
   <title>FOBE Work Phone</title>
-  <link rel="icon" href="data:,">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23002060'/%3E%3Crect x='6' y='24' width='5' height='3' fill='%2300B0F0'/%3E%3Crect x='11' y='24' width='5' height='3' fill='%23FF0066'/%3E%3Crect x='16' y='24' width='5' height='3' fill='%23FF3300'/%3E%3Crect x='21' y='24' width='5' height='3' fill='%2300B050'/%3E%3Ctext x='16' y='19' font-family='Segoe UI,Arial' font-weight='800' font-size='11' fill='white' text-anchor='middle'%3EFOBE%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<!-- Icon set (inline, no external libraries) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-visit" viewBox="0 0 24 24"><rect x="5" y="4" width="14" height="18" rx="2"/><path d="M9 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/><path d="M9 11h6M9 15h6M9 19h3"/></symbol>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v4M8 21h8"/></symbol>
+    <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V3M7 8l5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/></symbol>
+    <symbol id="i-audio-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13v4M11 11v8M14 13v4M17 14v2"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M3 8a2 2 0 0 1 2-2h2l2-3h6l2 3h2a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="13" r="4"/></symbol>
+    <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></symbol>
+    <symbol id="i-note" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8M8 9h2"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m8 12 3 3 5-6"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+    <symbol id="i-sync" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.3L3 16M3 12a9 9 0 0 1 15.5-6.3L21 8"/><path d="M21 3v5h-5M3 21v-5h5"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+    <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M5 12.55a11 11 0 0 1 14.08 0M1.42 9a16 16 0 0 1 21.16 0M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></symbol>
+    <symbol id="i-wifi-off" viewBox="0 0 24 24"><path d="M2 2l20 20M8.5 16.4a6 6 0 0 1 7 0M5 12.6a11 11 0 0 1 5.2-2.5M16.7 10.7a11 11 0 0 1 2.3 1.9M1.4 9a16 16 0 0 1 4.7-2.9M10.7 5.1a16 16 0 0 1 11.9 3.9M12 20h.01"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></symbol>
+    <symbol id="i-cloud-off" viewBox="0 0 24 24"><path d="M2 2l20 20M5.8 8.6A6 6 0 0 0 7 20h10M21.7 16.3A4.5 4.5 0 0 0 18 10h-1.3A8 8 0 0 0 9.8 4.3"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/></symbol>
+    <symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="currentColor" stroke="none"/></symbol>
+  </defs>
+</svg>
+
 <div class="phone">
   <header class="top">
-    <div class="brand">FOBE <span>Work phone</span></div>
-    <div id="pill" class="pill pill-grey" role="status" aria-live="polite">Not paired</div>
+    <div class="top-row">
+      <div class="brand">
+        <span class="brand-mark">FOBE</span>
+        <span class="brand-sub">Work phone</span>
+      </div>
+      <a href="#pair" id="pill" class="pill pill-grey" role="status" aria-live="polite">
+        <svg class="ic"><use href="#i-link"/></svg><span>Not paired</span>
+      </a>
+    </div>
+    <div class="stripe" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
   </header>
 
-  <main>
-    <!-- 1. Pair -->
-    <section id="screen-pair" class="screen" aria-labelledby="h-pair">
-      <h1 id="h-pair">Pair with Office PC</h1>
-      <div id="pair-form">
-        <p>Type the pairing key shown on the office PC. You only need to do this once.</p>
+  <a href="#record" id="rec-banner" class="rec-banner" hidden>
+    <svg class="ic"><use href="#i-dot"/></svg> Recording <span id="rec-banner-time">00:00</span> · tap to return
+  </a>
+
+  <main id="main">
+    <!-- PAIR / CONNECTION -->
+    <section id="screen-pair" class="screen" aria-labelledby="h-pair" hidden>
+      <h1 id="h-pair" class="title">Connection</h1>
+      <div id="conn-card" class="card conn-card"></div>
+      <div id="pair-form" class="card" hidden>
+        <h2 class="card-title">Pair with the office PC</h2>
+        <p class="muted">Enter the pairing key shown on the office PC under <b>From work phone</b>. You only need to do this once.</p>
         <label for="pair-key" class="label">Pairing key</label>
-        <input id="pair-key" class="input key-input" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="abcd-efgh-ijkl-mnop" maxlength="19">
-        <button id="pair-btn" class="btn btn-primary">Pair</button>
+        <input id="pair-key" class="input key-input" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="abcd-efgh-ijkl-mnop" maxlength="19" inputmode="text">
         <p id="pair-error" class="error" role="alert"></p>
+        <button id="pair-btn" class="btn btn-primary"><svg class="ic"><use href="#i-link"/></svg>Pair</button>
+        <button id="pair-cancel" class="btn btn-text" hidden>Cancel</button>
       </div>
-      <div id="pair-done" hidden>
-        <div class="card">
-          <div class="muted">Paired with key</div>
-          <div id="pair-key-shown" class="key-shown"></div>
-          <div id="pair-office" class="muted"></div>
-        </div>
-        <a href="#record" class="btn btn-primary">Record a visit</a>
-        <button id="repair-btn" class="btn btn-quiet">Pair with a different office</button>
+      <div class="info">
+        <svg class="ic"><use href="#i-cloud-off"/></svg>
+        <p>Files go directly to the office PC over an encrypted peer-to-peer link (Holepunch). Nothing passes through the cloud.</p>
       </div>
     </section>
 
-    <!-- 2. Record -->
+    <!-- VISIT HUB -->
+    <section id="screen-visit" class="screen" aria-labelledby="h-visit" hidden>
+      <div id="visit-start" hidden>
+        <h1 id="h-visit" class="title">New visit</h1>
+        <div class="card">
+          <label for="child-name" class="label">Who is this visit for?</label>
+          <input id="child-name" class="input" list="children" autocomplete="off" placeholder="Child's full name, e.g. Ayaan Malik">
+          <datalist id="children"></datalist>
+          <p class="hint">Used to name the files, e.g. <code id="name-example">Ayaan-Malik_recording_…</code></p>
+          <p id="visit-error" class="error" role="alert"></p>
+          <button id="visit-start-btn" class="btn btn-primary"><svg class="ic"><use href="#i-plus"/></svg>Start visit</button>
+        </div>
+      </div>
+
+      <div id="visit-active" hidden>
+        <div class="visit-head card">
+          <div id="visit-avatar" class="avatar"></div>
+          <div class="visit-meta">
+            <div class="eyebrow">Current visit</div>
+            <div id="visit-child" class="visit-child"></div>
+            <div id="visit-sub" class="muted small"></div>
+          </div>
+          <button id="visit-rename" class="icon-btn" aria-label="Change child name"><svg class="ic"><use href="#i-pencil"/></svg></button>
+        </div>
+
+        <h2 class="section-title">Add to this visit</h2>
+        <div class="tiles">
+          <a href="#record" class="tile tile-pink"><span class="tile-ic"><svg class="ic"><use href="#i-mic"/></svg></span><span class="tile-label">Record audio</span><span class="tile-sub">With parent consent</span></a>
+          <a href="#audio" class="tile tile-blue"><span class="tile-ic"><svg class="ic"><use href="#i-audio-file"/></svg></span><span class="tile-label">Upload audio</span><span class="tile-sub">WAV, M4A, OGG, MP3</span></a>
+          <a href="#photo" class="tile tile-green"><span class="tile-ic"><svg class="ic"><use href="#i-camera"/></svg></span><span class="tile-label">Photo of notes</span><span class="tile-sub">Camera or upload</span></a>
+          <a href="#notes" class="tile tile-navy"><span class="tile-ic"><svg class="ic"><use href="#i-note"/></svg></span><span class="tile-label">Type notes</span><span class="tile-sub">Saved as a .txt file</span></a>
+        </div>
+
+        <h2 class="section-title">In this visit <span id="visit-count" class="count"></span></h2>
+        <ul id="visit-list" class="list"></ul>
+
+        <button id="visit-finish" class="btn btn-secondary"><svg class="ic"><use href="#i-check-circle"/></svg>Finish visit</button>
+      </div>
+    </section>
+
+    <!-- RECORD -->
     <section id="screen-record" class="screen" aria-labelledby="h-record" hidden>
-      <h1 id="h-record">Record visit</h1>
-      <div id="rec-consent" class="card consent">
+      <a href="#visit" class="back"><svg class="ic"><use href="#i-back"/></svg><span class="back-child"></span></a>
+      <h1 id="h-record" class="title">Record audio</h1>
+      <div class="card consent">
         <label class="check">
           <input type="checkbox" id="consent">
           <span>Parent has agreed to recording</span>
         </label>
-        <p class="muted small">Ask before every recording. The recording goes only to the office PC.</p>
+        <p class="hint">Confirm before every recording. It is sent only to the office PC.</p>
       </div>
       <div class="rec-area">
-        <div id="rec-timer" class="timer" aria-live="off">00:00</div>
+        <div id="rec-timer" class="timer">00:00</div>
         <button id="rec-btn" class="rec-btn" disabled aria-label="Start recording">
-          <span class="rec-dot"></span><span id="rec-label">Record</span>
+          <svg class="ic" id="rec-icon"><use href="#i-mic"/></svg><span id="rec-label">Record</span>
         </button>
         <p id="rec-hint" class="muted">Tick the consent box to start.</p>
       </div>
       <div id="rec-review" class="card" hidden>
-        <div class="muted">Recording ready (16 kHz mono WAV, <span id="rec-size"></span>)</div>
+        <h2 class="card-title">Review recording</h2>
         <audio id="rec-audio" controls></audio>
-        <button id="rec-send" class="btn btn-primary">Send to office</button>
-        <button id="rec-discard" class="btn btn-quiet">Discard</button>
+        <p class="hint" id="rec-info"></p>
+        <label class="label" for="rec-name">File name</label>
+        <div class="name-field"><input id="rec-name" class="input" autocomplete="off" spellcheck="false"><span class="ext">.wav</span></div>
+        <button id="rec-send" class="btn btn-primary"><svg class="ic"><use href="#i-send"/></svg>Send to office</button>
+        <button id="rec-discard" class="btn btn-text"><svg class="ic"><use href="#i-trash"/></svg>Discard</button>
       </div>
       <p id="rec-error" class="error" role="alert"></p>
     </section>
 
-    <!-- 3. Notes -->
-    <section id="screen-notes" class="screen" aria-labelledby="h-notes" hidden>
-      <h1 id="h-notes">Add notes</h1>
+    <!-- UPLOAD AUDIO -->
+    <section id="screen-audio" class="screen" aria-labelledby="h-audio" hidden>
+      <a href="#visit" class="back"><svg class="ic"><use href="#i-back"/></svg><span class="back-child"></span></a>
+      <h1 id="h-audio" class="title">Upload audio</h1>
       <div class="card">
-        <h2>Photo of handwritten notes</h2>
-        <button id="photo-btn" class="btn btn-primary">Upload photo</button>
-        <input id="photo-file" type="file" accept="image/*" capture="environment" hidden>
-        <button id="cam-btn" class="btn btn-secondary">Take photo with camera</button>
+        <p class="muted">Add a recording made on another device. It is converted to 16 kHz mono WAV for transcription (WAV files are sent unchanged).</p>
+        <button id="audio-pick" class="btn btn-secondary"><svg class="ic"><use href="#i-upload"/></svg>Choose audio file</button>
+        <input id="audio-file" type="file" accept="audio/*,.wav,.m4a,.ogg,.opus,.mp3,.aac,.webm" hidden>
+      </div>
+      <div id="audio-review" class="card" hidden>
+        <div class="file-row"><span class="kind-ic kind-audio"><svg class="ic"><use href="#i-audio-file"/></svg></span><div><div id="audio-orig" class="name"></div><div id="audio-info" class="muted small"></div></div></div>
+        <audio id="audio-player" controls></audio>
+        <label class="check check-sm"><input type="checkbox" id="audio-consent"><span>Parent agreed to this recording</span></label>
+        <label class="label" for="audio-name">File name</label>
+        <div class="name-field"><input id="audio-name" class="input" autocomplete="off" spellcheck="false"><span class="ext">.wav</span></div>
+        <button id="audio-keep" class="link-btn" type="button">Use the original file name</button>
+        <button id="audio-send" class="btn btn-primary"><svg class="ic"><use href="#i-send"/></svg>Send to office</button>
+        <button id="audio-discard" class="btn btn-text"><svg class="ic"><use href="#i-trash"/></svg>Discard</button>
+      </div>
+      <p id="audio-error" class="error" role="alert"></p>
+    </section>
+
+    <!-- PHOTO -->
+    <section id="screen-photo" class="screen" aria-labelledby="h-photo" hidden>
+      <a href="#visit" class="back"><svg class="ic"><use href="#i-back"/></svg><span class="back-child"></span></a>
+      <h1 id="h-photo" class="title">Photo of notes</h1>
+      <div class="card">
+        <div class="btn-pair">
+          <button id="cam-btn" class="btn btn-secondary"><svg class="ic"><use href="#i-camera"/></svg>Camera</button>
+          <button id="photo-pick" class="btn btn-secondary"><svg class="ic"><use href="#i-image"/></svg>Upload</button>
+        </div>
+        <input id="photo-file" type="file" accept="image/*" capture="environment" multiple hidden>
         <div id="cam" hidden>
           <video id="cam-video" autoplay playsinline muted></video>
-          <button id="cam-snap" class="btn btn-primary">Capture</button>
-          <button id="cam-close" class="btn btn-quiet">Close camera</button>
-        </div>
-        <div id="photo-review" hidden>
-          <img id="photo-preview" alt="Preview of the notes photo">
-          <button id="photo-send" class="btn btn-primary">Send photo to office</button>
-          <button id="photo-discard" class="btn btn-quiet">Retake</button>
+          <button id="cam-snap" class="btn btn-primary"><svg class="ic"><use href="#i-camera"/></svg>Capture page</button>
+          <button id="cam-close" class="btn btn-text">Close camera</button>
         </div>
       </div>
+      <div id="photo-review" class="card" hidden>
+        <h2 class="card-title">Pages <span id="photo-count" class="count"></span></h2>
+        <div id="photo-grid" class="thumbs"></div>
+        <p class="hint">Add more pages with Camera or Upload above.</p>
+        <label class="label" for="photo-name">File name</label>
+        <div class="name-field"><input id="photo-name" class="input" autocomplete="off" spellcheck="false"><span class="ext" id="photo-ext">.jpg</span></div>
+        <p id="photo-names" class="hint names"></p>
+        <button id="photo-send" class="btn btn-primary"><svg class="ic"><use href="#i-send"/></svg><span id="photo-send-label">Send to office</span></button>
+        <button id="photo-discard" class="btn btn-text"><svg class="ic"><use href="#i-trash"/></svg>Discard all</button>
+      </div>
+      <p id="photo-error" class="error" role="alert"></p>
+    </section>
+
+    <!-- NOTES -->
+    <section id="screen-notes" class="screen" aria-labelledby="h-notes" hidden>
+      <a href="#visit" class="back"><svg class="ic"><use href="#i-back"/></svg><span class="back-child"></span></a>
+      <h1 id="h-notes" class="title">Type notes</h1>
       <div class="card">
-        <h2>Typed notes</h2>
-        <label for="notes-text" class="label">Notes (saved as a .txt file)</label>
-        <textarea id="notes-text" class="input" rows="7" placeholder="e.g. Mum says no allergies. Likes trains..."></textarea>
-        <button id="notes-send" class="btn btn-primary">Send notes to office</button>
+        <label for="notes-text" class="label">Notes</label>
+        <textarea id="notes-text" class="input" rows="9" placeholder="e.g. Mum says no known allergies. Loves trains. Uses Makaton signs for 'more' and 'finished'."></textarea>
+        <label class="label" for="notes-name">File name</label>
+        <div class="name-field"><input id="notes-name" class="input" autocomplete="off" spellcheck="false"><span class="ext">.txt</span></div>
+        <button id="notes-send" class="btn btn-primary"><svg class="ic"><use href="#i-send"/></svg>Send to office</button>
       </div>
       <p id="notes-error" class="error" role="alert"></p>
     </section>
 
-    <!-- 4. Outbox -->
+    <!-- OUTBOX -->
     <section id="screen-outbox" class="screen" aria-labelledby="h-outbox" hidden>
-      <h1 id="h-outbox">Outbox</h1>
-      <p class="muted">Files go straight to the office PC, peer-to-peer. If the office is offline they wait here and send automatically.</p>
+      <h1 id="h-outbox" class="title">Outbox</h1>
+      <div id="outbox-summary" class="summary"></div>
       <ul id="outbox-list" class="list"></ul>
     </section>
 
-    <!-- 5. Backup -->
+    <!-- BACKUP -->
     <section id="screen-backup" class="screen" aria-labelledby="h-backup" hidden>
-      <h1 id="h-backup">Care plans <span class="ro-label">🔒 Read-only backup</span></h1>
-      <p id="backup-synced" class="muted">Last synced: never</p>
+      <h1 id="h-backup" class="title">Care plans</h1>
+      <div class="card ro-card">
+        <span class="ro-ic"><svg class="ic"><use href="#i-lock"/></svg></span>
+        <div>
+          <div class="ro-title">Read-only backup</div>
+          <div class="muted small">A copy of the office care plans kept on this phone. Plans can only be edited and signed off on the office PC.</div>
+          <div id="backup-synced" class="synced"></div>
+        </div>
+      </div>
       <ul id="backup-list" class="list"></ul>
     </section>
   </main>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
-  <nav class="tabs" aria-label="Screens">
-    <a href="#pair" data-tab="pair"><span aria-hidden="true">🔗</span>Pair</a>
-    <a href="#record" data-tab="record"><span aria-hidden="true">🎙️</span>Record</a>
-    <a href="#notes" data-tab="notes"><span aria-hidden="true">📝</span>Notes</a>
-    <a href="#outbox" data-tab="outbox"><span aria-hidden="true">📤</span>Outbox<b id="badge" class="badge" hidden></b></a>
-    <a href="#backup" data-tab="backup"><span aria-hidden="true">📋</span>Backup</a>
+  <nav class="tabs" aria-label="Main">
+    <a href="#visit" data-tab="visit"><svg class="ic"><use href="#i-visit"/></svg><span>Visit</span></a>
+    <a href="#outbox" data-tab="outbox"><svg class="ic"><use href="#i-send"/></svg><span>Outbox</span><b id="badge" class="badge" hidden></b></a>
+    <a href="#backup" data-tab="backup"><svg class="ic"><use href="#i-shield"/></svg><span>Care plans</span></a>
+    <a href="#pair" data-tab="pair"><svg class="ic"><use href="#i-link"/></svg><span>Connection</span></a>
   </nav>
 </div>
 <script src="app.js"></script>

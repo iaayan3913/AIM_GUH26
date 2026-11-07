@@ -2,7 +2,17 @@
 'use strict'
 
 const $ = (id) => document.getElementById(id)
-const state = { status: null, recording: null, wav: null, photo: null }
+const icon = (name, cls = '') => `<svg class="ic ${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`
+const state = {
+  status: null,
+  outbox: [],
+  plans: [],
+  visit: loadVisit(),
+  recording: null,
+  wav: null,
+  audio: null,
+  photos: []
+}
 
 // ---------- helpers ----------
 
@@ -13,77 +23,146 @@ async function api (path, opts = {}) {
   return body
 }
 
-function toast (msg) {
+function toast (msg, ic = 'check-circle') {
   const t = $('toast')
-  t.textContent = msg
+  t.innerHTML = icon(ic) + `<span>${esc(msg)}</span>`
   t.hidden = false
   clearTimeout(toast.timer)
-  toast.timer = setTimeout(() => { t.hidden = true }, 3500)
+  toast.timer = setTimeout(() => { t.hidden = true }, 3800)
 }
 
 const pad = (n) => String(n).padStart(2, '0')
-const stamp = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`
+const today = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 const hhmm = (iso) => { const d = new Date(iso); return `${pad(d.getHours())}:${pad(d.getMinutes())}` }
 const dateGB = (s) => s ? new Date(s + (s.length === 10 ? 'T12:00:00' : '')).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'
 const size = (n) => n > 1e6 ? (n / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB'
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+const initials = (name) => (name || '?').trim().split(/\s+/).map(w => w[0]).slice(0, 2).join('').toUpperCase()
+const avatarClass = (name) => 'av-' + ([...(name || '')].reduce((a, c) => a + c.charCodeAt(0), 0) % 5)
+const fmtDur = (s) => `${pad(Math.floor(s / 60))}:${pad(Math.floor(s % 60))}`
+
+// File names: <Child-Name>_<type>_<date>_<n>; the worker can rename before sending.
+const BAD = /[<>:"/\\|?*\x00-\x1f]/g
+const slug = (s) => String(s || '').replace(BAD, '').trim().replace(/\s+/g, '-').replace(/-+/g, '-') || 'Child'
+const cleanBase = (s) => String(s || '').replace(BAD, '').trim().replace(/\.(wav|txt|jpe?g|png|webp|m4a|ogg|mp3)$/i, '')
+const KIND_OF_TYPE = { recording: 'recording', audio: 'audio', 'notes-photo': 'photo', notes: 'notes' }
+function defaultName (type) {
+  const n = visitItems().filter(i => i.kind === KIND_OF_TYPE[type]).length + 1
+  return `${slug(state.visit?.child)}_${type}_${today()}_${n}`
+}
+function setName (inputId, type, force = false) {
+  const el = $(inputId)
+  if (force || !el.dataset.touched) { el.value = defaultName(type); delete el.dataset.touched }
+}
+for (const id of ['rec-name', 'audio-name', 'photo-name', 'notes-name']) {
+  $(id).addEventListener('input', (e) => {
+    const v = e.target.value.replace(BAD, '')
+    if (v !== e.target.value) e.target.value = v
+    e.target.dataset.touched = '1'
+  })
+}
+function readName (inputId) {
+  const base = cleanBase($(inputId).value)
+  if (!base) throw new Error('Please enter a file name')
+  return base
+}
+
+// ---------- visit (kept in this browser) ----------
+
+function loadVisit () { try { return JSON.parse(localStorage.getItem('fobe.visit')) } catch { return null } }
+function saveVisit (v) {
+  state.visit = v
+  if (v) localStorage.setItem('fobe.visit', JSON.stringify(v))
+  else localStorage.removeItem('fobe.visit')
+}
+const visitItems = () => state.visit ? state.outbox.filter(i => i.visitId === state.visit.id) : []
 
 async function upload (blob, name, kind) {
-  if (!state.status?.paired) { toast('Pair with the office PC first'); location.hash = '#pair'; throw new Error('Not paired') }
-  const item = await api(`/api/files?name=${encodeURIComponent(name)}&kind=${kind}`, {
-    method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: blob
-  })
-  toast(item.status === 'delivered' ? `${name} delivered` : state.status.connected ? `Sending ${name}…` : `${name} queued – will send when the office is online`)
-  location.hash = '#outbox'
+  if (!state.status?.paired) { location.hash = '#pair'; throw new Error('Pair with the office PC first') }
+  const q = new URLSearchParams({ name, kind, child: state.visit?.child || '', visit: state.visit?.id || '' })
+  const item = await api('/api/files?' + q, { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: blob })
+  state.outbox = [item, ...state.outbox.filter(i => i.id !== item.id)]
+  renderVisit()
   return item
+}
+
+function afterSend (count, label) {
+  const online = state.status?.connected
+  toast(online ? `${label} sent to the office` : `${label} saved. It will send when the office is online`, online ? 'check-circle' : 'clock')
+  location.hash = '#visit'
 }
 
 // ---------- navigation ----------
 
-const screens = ['pair', 'record', 'notes', 'outbox', 'backup']
+const SCREENS = ['pair', 'visit', 'record', 'audio', 'photo', 'notes', 'outbox', 'backup']
+const CAPTURE = ['record', 'audio', 'photo', 'notes']
+let current = null
 function route () {
   let tab = location.hash.slice(1)
-  if (!screens.includes(tab)) tab = state.status?.paired ? 'record' : 'pair'
-  for (const s of screens) $('screen-' + s).hidden = s !== tab
+  if (!SCREENS.includes(tab)) tab = state.status && !state.status.paired ? 'pair' : 'visit'
+  if (CAPTURE.includes(tab) && !state.visit) { tab = 'visit'; history.replaceState(null, '', '#visit') }
+  if (current === 'photo' && tab !== 'photo') closeCamera()
+  current = tab
+  for (const s of SCREENS) $('screen-' + s).hidden = s !== tab
+  const navTab = CAPTURE.includes(tab) ? 'visit' : tab
   for (const a of document.querySelectorAll('.tabs a')) {
-    if (a.dataset.tab === tab) a.setAttribute('aria-current', 'page')
+    if (a.dataset.tab === navTab) a.setAttribute('aria-current', 'page')
     else a.removeAttribute('aria-current')
   }
-  if (tab === 'outbox') refreshOutbox()
-  if (tab === 'backup') refreshBackup()
+  for (const el of document.querySelectorAll('.back-child')) el.textContent = state.visit ? `Visit · ${state.visit.child}` : 'Visit'
+  if (tab === 'record' && !state.wav) setName('rec-name', 'recording')
+  if (tab === 'notes') setName('notes-name', 'notes')
+  if (tab === 'photo' && !state.photos.length) setName('photo-name', 'notes-photo')
+  if (tab === 'audio' && !state.audio) setName('audio-name', 'audio')
+  render()
   window.scrollTo(0, 0)
 }
 window.addEventListener('hashchange', route)
 
-// ---------- 1. pair + status pill ----------
-
-async function refreshStatus () {
-  try {
-    const s = await api('/api/status')
-    state.status = s
-    const pill = $('pill')
-    if (!s.paired) { pill.className = 'pill pill-grey'; pill.textContent = 'Not paired' } else if (s.connected) { pill.className = 'pill pill-ok'; pill.textContent = 'Connected to Office PC' } else { pill.className = 'pill pill-warn'; pill.textContent = 'Office offline – files queued' }
-    const badge = $('badge')
-    badge.hidden = !s.queued
-    badge.textContent = s.queued
-    if (!showPairForm.forced) {
-      $('pair-form').hidden = s.paired
-      $('pair-done').hidden = !s.paired
-    }
-    $('pair-key-shown').textContent = s.pairingKey || ''
-    $('pair-office').textContent = s.connected ? `Connected to ${s.officeName || 'Office PC'}` : 'Office PC not reachable right now'
-  } catch {
-    const pill = $('pill')
-    pill.className = 'pill pill-grey'
-    pill.textContent = 'Phone app stopped'
-  }
+function render () {
+  renderPill()
+  if (current === 'pair') renderConnection()
+  if (current === 'visit') renderVisit()
+  if (current === 'outbox') renderOutbox()
+  if (current === 'backup') renderBackup()
 }
 
-function showPairForm (on) {
-  showPairForm.forced = on
-  $('pair-form').hidden = !on
-  $('pair-done').hidden = on
-  if (on) $('pair-key').focus()
+// ---------- status pill + connection ----------
+
+function renderPill () {
+  const s = state.status
+  const pill = $('pill')
+  let cls = 'pill-grey'; let ic = 'link'; let text = 'Not paired'
+  if (!s) { text = 'Phone app stopped'; ic = 'alert' } else if (s.paired && s.connected) { cls = 'pill-ok'; ic = 'wifi'; text = 'Connected to Office PC' } else if (s.paired) { cls = 'pill-warn'; ic = 'wifi-off'; text = 'Office offline – files queued' }
+  pill.className = 'pill ' + cls
+  pill.innerHTML = icon(ic) + `<span>${text}</span>`
+  const badge = $('badge')
+  badge.hidden = !s?.queued
+  badge.textContent = s?.queued || ''
+}
+
+let pairFormOpen = false
+function renderConnection () {
+  const s = state.status
+  const card = $('conn-card')
+  if (!s?.paired) {
+    card.className = 'card conn-card conn-none'
+    card.innerHTML = `<div class="conn-ic">${icon('link')}</div><div class="conn-title">Not paired yet</div><p class="muted small">Pair once with the office PC to send files and keep a backup.</p>`
+    $('pair-form').hidden = false
+    $('pair-cancel').hidden = true
+    return
+  }
+  const ok = s.connected
+  card.className = 'card conn-card ' + (ok ? 'conn-ok' : 'conn-warn')
+  card.innerHTML = `<div class="conn-ic">${icon(ok ? 'wifi' : 'wifi-off')}</div>
+    <div class="conn-title">${ok ? 'Connected to Office PC' : 'Office PC offline'}</div>
+    <p class="muted small" style="margin:4px 0 0">${ok ? 'Office PC · ' + esc((s.officeName || '').replace(/\s*\(office\)$/, '') || 'FOBE') :'New files wait in the outbox and send automatically when the office is back.'}</p>
+    <div class="key-box"><div class="eyebrow">Paired with key</div><div class="key-shown">${esc(s.pairingKey)}</div></div>
+    ${pairFormOpen ? '' : '<button id="repair-btn" class="btn btn-text">' + icon('key') + 'Pair with a different office</button>'}`
+  $('pair-form').hidden = !pairFormOpen
+  $('pair-cancel').hidden = false
+  const rb = $('repair-btn')
+  if (rb) rb.onclick = () => { pairFormOpen = true; renderConnection(); $('pair-key').focus() }
 }
 
 $('pair-key').addEventListener('input', (e) => {
@@ -91,38 +170,122 @@ $('pair-key').addEventListener('input', (e) => {
   e.target.value = raw.match(/.{1,4}/g)?.join('-') || ''
 })
 $('pair-key').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('pair-btn').click() })
+$('pair-cancel').addEventListener('click', () => { pairFormOpen = false; renderConnection() })
 $('pair-btn').addEventListener('click', async () => {
   $('pair-error').textContent = ''
   $('pair-btn').disabled = true
   try {
     await api('/api/pair', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ key: $('pair-key').value }) })
-    showPairForm(false)
+    pairFormOpen = false
+    $('pair-key').value = ''
     await refreshStatus()
-    toast('Paired. Looking for the office PC…')
+    toast('Paired. Looking for the office PC…', 'link')
   } catch (err) {
     $('pair-error').textContent = err.message
   } finally {
     $('pair-btn').disabled = false
   }
 })
-$('repair-btn').addEventListener('click', () => showPairForm(true))
 
-// ---------- 2. record (MediaRecorder -> 16 kHz mono WAV) ----------
+// ---------- visit hub ----------
 
-$('consent').addEventListener('change', () => {
-  if (!state.recording) {
-    $('rec-btn').disabled = !$('consent').checked
-    $('rec-hint').textContent = $('consent').checked ? 'Press the button to start recording.' : 'Tick the consent box to start.'
+const KIND_ICON = { recording: 'mic', audio: 'audio-file', photo: 'image', notes: 'note', file: 'note' }
+const STATUS = {
+  queued: ['clock', 'Queued'],
+  sending: ['sync', 'Sending'],
+  delivered: ['check', 'Delivered'],
+  error: ['alert', 'Failed']
+}
+const chip = (st) => `<span class="chip st-${st}">${icon(STATUS[st][0], st === 'sending' ? 'spin' : '')}${STATUS[st][1]}</span>`
+const itemRow = (i, showChild) => `<li>
+  <span class="kind-ic kind-${i.kind}">${icon(KIND_ICON[i.kind] || 'note')}</span>
+  <div class="grow"><div class="name">${esc(i.name).replace(/([_-])/g, '$1<wbr>')}</div>
+  <div class="sub">${showChild && i.child ? esc(i.child) + ' · ' : ''}${size(i.size)} · ${hhmm(i.createdAt)}${i.error ? ' · ' + esc(i.error) : ''}</div></div>
+  ${chip(i.status)}</li>`
+
+function renderVisit () {
+  const v = state.visit
+  $('visit-start').hidden = !!v
+  $('visit-active').hidden = !v
+  if (!v) {
+    const n = $('child-name').value.trim()
+    $('name-example').textContent = `${slug(n || 'Ayaan Malik')}_recording_${today()}_1.wav`
+    return
   }
+  const items = visitItems()
+  $('visit-avatar').className = 'avatar ' + avatarClass(v.child)
+  $('visit-avatar').textContent = initials(v.child)
+  if (!$('visit-child').querySelector('input')) $('visit-child').textContent = v.child
+  $('visit-sub').textContent = `Started ${hhmm(v.startedAt)} · ${items.length} ${items.length === 1 ? 'file' : 'files'}`
+  $('visit-count').textContent = items.length || ''
+  $('visit-list').innerHTML = items.length
+    ? items.map(i => itemRow(i, false)).join('')
+    : `<li class="empty">${icon('plus')}<span>Nothing added yet. Record audio, add a photo of your notes or type notes. You can keep adding until you finish the visit.</span></li>`
+  $('visit-finish').disabled = !!state.recording
+}
+
+function startVisit (name) {
+  const child = name.replace(/\s+/g, ' ').trim()
+  if (!child) { $('visit-error').textContent = 'Enter the child\'s name to start the visit.'; return }
+  $('visit-error').textContent = ''
+  saveVisit({ id: Date.now().toString(36), child, startedAt: new Date().toISOString() })
+  $('child-name').value = ''
+  for (const id of ['rec-name', 'audio-name', 'photo-name', 'notes-name']) delete $(id).dataset.touched
+  renderVisit()
+  toast(`Visit started for ${child}`, 'visit')
+}
+$('visit-start-btn').addEventListener('click', () => startVisit($('child-name').value))
+$('child-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') startVisit($('child-name').value) })
+$('child-name').addEventListener('input', () => renderVisit())
+
+$('visit-rename').addEventListener('click', () => {
+  const box = $('visit-child')
+  if (box.querySelector('input')) return
+  box.innerHTML = '<input class="input" id="rename-input" aria-label="Child name" autocomplete="off" list="children">'
+  const inp = $('rename-input')
+  inp.value = state.visit.child
+  inp.focus()
+  inp.select()
+  let finished = false
+  const done = (save) => {
+    if (finished) return
+    finished = true
+    const v = inp.value.replace(/\s+/g, ' ').trim()
+    if (save && v && v !== state.visit.child) {
+      saveVisit({ ...state.visit, child: v })
+      for (const id of ['rec-name', 'audio-name', 'photo-name', 'notes-name']) delete $(id).dataset.touched
+      toast(`New files will be named ${slug(v)}_…`, 'pencil')
+    }
+    box.textContent = state.visit.child
+    renderVisit()
+  }
+  inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') done(true); if (e.key === 'Escape') done(false) })
+  inp.addEventListener('blur', () => done(true))
 })
 
+$('visit-finish').addEventListener('click', () => {
+  const n = visitItems().length
+  const child = state.visit.child
+  saveVisit(null)
+  renderVisit()
+  toast(`Visit for ${child} finished · ${n} ${n === 1 ? 'file' : 'files'}`, 'check-circle')
+})
+
+// ---------- record (MediaRecorder -> 16 kHz mono WAV) ----------
+
+function updateRecButton () {
+  if (state.recording) return
+  const ok = $('consent').checked && !state.wav
+  $('rec-btn').disabled = !ok
+  $('rec-hint').textContent = state.wav ? 'Send or discard this recording to record another.' : $('consent').checked ? 'Press the button to start recording.' : 'Tick the consent box to start.'
+}
+$('consent').addEventListener('change', updateRecButton)
 $('rec-btn').addEventListener('click', () => state.recording ? stopRecording() : startRecording())
 
 async function startRecording () {
   $('rec-error').textContent = ''
   if (!$('consent').checked) return
   if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) { $('rec-error').textContent = 'This browser cannot record audio. Use Edge or Chrome.'; return }
-  discardRecording()
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } })
     const rec = new MediaRecorder(stream)
@@ -135,17 +298,20 @@ async function startRecording () {
     tick(started)
     $('rec-btn').classList.add('recording')
     $('rec-btn').setAttribute('aria-label', 'Stop recording')
+    $('rec-icon').innerHTML = '<use href="#i-stop"/>'
     $('rec-label').textContent = 'Stop'
-    $('rec-hint').textContent = 'Recording… press Stop when the meeting ends.'
+    $('rec-hint').textContent = 'Recording… you can switch screens, it keeps going.'
     $('consent').disabled = true
+    $('rec-banner').hidden = false
   } catch (err) {
     $('rec-error').textContent = err.name === 'NotAllowedError' ? 'Microphone permission was refused. Allow it in the address bar and try again.' : 'Could not start the microphone: ' + err.message
   }
 }
 
 function tick (started) {
-  const s = Math.floor((Date.now() - started) / 1000)
-  $('rec-timer').textContent = `${pad(Math.floor(s / 60))}:${pad(s % 60)}`
+  const t = fmtDur((Date.now() - started) / 1000)
+  $('rec-timer').textContent = t
+  $('rec-banner-time').textContent = t
 }
 
 function stopRecording () {
@@ -154,29 +320,33 @@ function stopRecording () {
   clearInterval(r.timer)
   r.rec.stop()
   state.recording = null
+  $('rec-banner').hidden = true
   $('rec-btn').classList.remove('recording')
   $('rec-btn').setAttribute('aria-label', 'Start recording')
+  $('rec-icon').innerHTML = '<use href="#i-mic"/>'
   $('rec-label').textContent = 'Record'
   $('rec-btn').disabled = true
-  $('rec-hint').textContent = 'Converting to WAV…'
+  $('rec-hint').textContent = 'Preparing the recording…'
 }
 
 async function finishRecording (stream, blob) {
   stream.getTracks().forEach(t => t.stop())
   try {
     const wav = await toWav16kMono(blob)
-    state.wav = { blob: wav, name: `visit_${stamp()}.wav` }
+    state.wav = wav
     $('rec-audio').src = URL.createObjectURL(wav)
-    $('rec-size').textContent = size(wav.size)
+    $('rec-info').textContent = `${$('rec-timer').textContent} · 16 kHz mono WAV · ${size(wav.size)}`
+    setName('rec-name', 'recording')
     $('rec-review').hidden = false
-    $('rec-hint').textContent = 'Listen back if you like, then send it to the office.'
+    updateRecButton()
+    if (current !== 'record') toast('Recording stopped. Open Record audio to send it.', 'mic')
   } catch (err) {
     $('rec-error').textContent = 'Could not convert the recording: ' + err.message
     resetRecorder()
   }
 }
 
-// Decode whatever MediaRecorder produced (webm/opus), downmix + resample to 16 kHz mono, encode PCM16 WAV.
+// Decode whatever the browser produced (webm/opus, m4a, ogg, mp3…), downmix + resample to 16 kHz mono, PCM16 WAV.
 async function toWav16kMono (blob) {
   const ctx = new AudioContext()
   let decoded
@@ -206,144 +376,277 @@ function encodeWav (samples, rate) {
   return new Blob([buf], { type: 'audio/wav' })
 }
 
-function discardRecording () {
+function resetRecorder () {
   if ($('rec-audio').src) URL.revokeObjectURL($('rec-audio').src)
   $('rec-audio').removeAttribute('src')
   $('rec-review').hidden = true
   state.wav = null
-}
-
-function resetRecorder () {
-  discardRecording()
   $('consent').disabled = false
   $('consent').checked = false // consent is confirmed again for every recording
-  $('rec-btn').disabled = true
   $('rec-timer').textContent = '00:00'
-  $('rec-hint').textContent = 'Tick the consent box to start.'
+  delete $('rec-name').dataset.touched
+  updateRecButton()
 }
 
 $('rec-send').addEventListener('click', async () => {
   if (!state.wav) return
+  $('rec-error').textContent = ''
   $('rec-send').disabled = true
-  try { await upload(state.wav.blob, state.wav.name, 'recording'); resetRecorder() } catch (err) { $('rec-error').textContent = err.message } finally { $('rec-send').disabled = false }
+  try {
+    const name = readName('rec-name') + '.wav'
+    await upload(state.wav, name, 'recording')
+    resetRecorder()
+    afterSend(1, name)
+  } catch (err) { $('rec-error').textContent = err.message } finally { $('rec-send').disabled = false }
 })
 $('rec-discard').addEventListener('click', resetRecorder)
 
-// ---------- 3. notes: photo (file or camera) + typed ----------
+// ---------- upload audio file ----------
 
-$('photo-btn').addEventListener('click', () => $('photo-file').click())
-$('photo-file').addEventListener('change', (e) => {
+$('audio-pick').addEventListener('click', () => $('audio-file').click())
+$('audio-file').addEventListener('change', (e) => {
   const f = e.target.files[0]
-  if (f) showPhoto(f, safePhotoName(f.name))
+  e.target.value = ''
+  if (!f) return
+  if (state.audio?.url) URL.revokeObjectURL(state.audio.url)
+  const isWav = /\.wav$/i.test(f.name) || /wav/.test(f.type)
+  state.audio = { file: f, isWav, url: URL.createObjectURL(f), origBase: cleanBase(f.name.replace(/\.[^.]+$/, '')) }
+  $('audio-player').src = state.audio.url
+  $('audio-orig').textContent = f.name
+  $('audio-info').textContent = `${size(f.size)} · ${isWav ? 'WAV, sent unchanged' : 'will be converted to 16 kHz WAV'}`
+  $('audio-player').onloadedmetadata = () => { if (isFinite($('audio-player').duration)) $('audio-info').textContent = `${fmtDur($('audio-player').duration)} · ` + $('audio-info').textContent }
+  $('audio-consent').checked = false
+  setName('audio-name', 'audio')
+  $('audio-review').hidden = false
+  $('audio-error').textContent = ''
+})
+$('audio-keep').addEventListener('click', () => {
+  if (!state.audio) return
+  $('audio-name').value = state.audio.origBase
+  $('audio-name').dataset.touched = '1'
+})
+function resetAudio () {
+  if (state.audio?.url) URL.revokeObjectURL(state.audio.url)
+  state.audio = null
+  $('audio-player').removeAttribute('src')
+  $('audio-review').hidden = true
+  delete $('audio-name').dataset.touched
+}
+$('audio-discard').addEventListener('click', resetAudio)
+$('audio-send').addEventListener('click', async () => {
+  if (!state.audio) return
+  $('audio-error').textContent = ''
+  if (!$('audio-consent').checked) { $('audio-error').textContent = 'Confirm the parent agreed to this recording.'; return }
+  const btn = $('audio-send')
+  btn.disabled = true
+  try {
+    const name = readName('audio-name') + '.wav'
+    let blob = state.audio.file
+    if (!state.audio.isWav) {
+      btn.lastChild.textContent = 'Converting…'
+      blob = await toWav16kMono(blob)
+    }
+    btn.lastChild.textContent = 'Sending…'
+    await upload(blob, name, 'audio')
+    resetAudio()
+    afterSend(1, name)
+  } catch (err) {
+    $('audio-error').textContent = /decode/i.test(err.message) ? 'This audio format could not be read. Try WAV, M4A, MP3 or OGG.' : err.message
+  } finally {
+    btn.disabled = false
+    btn.lastChild.textContent = 'Send to office'
+  }
+})
+
+// ---------- photos (multi-page) ----------
+
+$('photo-pick').addEventListener('click', () => $('photo-file').click())
+$('photo-file').addEventListener('change', (e) => {
+  for (const f of e.target.files) addPhoto(f)
   e.target.value = ''
 })
-const safePhotoName = (n) => `notes-photo_${stamp()}${(n.match(/\.[a-z0-9]{1,5}$/i) || ['.jpg'])[0].toLowerCase()}`
 
-function showPhoto (blob, name) {
-  if (state.photo) URL.revokeObjectURL($('photo-preview').src)
-  state.photo = { blob, name }
-  $('photo-preview').src = URL.createObjectURL(blob)
-  $('photo-review').hidden = false
+function addPhoto (blob) {
+  state.photos.push({ blob, url: URL.createObjectURL(blob), ext: /png/.test(blob.type) ? '.png' : /webp/.test(blob.type) ? '.webp' : '.jpg' })
+  if (state.photos.length === 1) setName('photo-name', 'notes-photo')
+  renderPhotos()
 }
-function clearPhoto () {
-  if (state.photo) URL.revokeObjectURL($('photo-preview').src)
-  state.photo = null
-  $('photo-review').hidden = true
+
+function renderPhotos () {
+  const n = state.photos.length
+  $('photo-review').hidden = !n
+  $('photo-count').textContent = n || ''
+  $('photo-grid').innerHTML = state.photos.map((p, i) => `<div class="thumb"><img src="${p.url}" alt="Page ${i + 1}"><span class="pg">${n > 1 ? 'p' + (i + 1) : 'Page'}</span><button data-i="${i}" aria-label="Remove page ${i + 1}">${icon('x')}</button></div>`).join('')
+  $('photo-ext').textContent = state.photos[0]?.ext || '.jpg'
+  updatePhotoNames()
+  $('photo-send-label').textContent = n > 1 ? `Send ${n} pages to office` : 'Send to office'
 }
+function updatePhotoNames () {
+  const n = state.photos.length
+  const base = cleanBase($('photo-name').value) || '…'
+  $('photo-names').innerHTML = n > 1
+    ? 'Saved as ' + state.photos.map((p, i) => `<code>${esc(base)}_p${i + 1}${p.ext}</code>`).join(' ')
+    : ''
+}
+$('photo-name').addEventListener('input', updatePhotoNames)
+
+$('photo-grid').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-i]')
+  if (!b) return
+  const [p] = state.photos.splice(Number(b.dataset.i), 1)
+  URL.revokeObjectURL(p.url)
+  renderPhotos()
+})
+
+function clearPhotos () {
+  for (const p of state.photos) URL.revokeObjectURL(p.url)
+  state.photos = []
+  delete $('photo-name').dataset.touched
+  renderPhotos()
+}
+$('photo-discard').addEventListener('click', clearPhotos)
 
 let camStream = null
 $('cam-btn').addEventListener('click', async () => {
-  $('notes-error').textContent = ''
+  $('photo-error').textContent = ''
   try {
     camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } })
     $('cam-video').srcObject = camStream
     $('cam').hidden = false
-    $('cam-btn').hidden = true
-    clearPhoto()
   } catch (err) {
-    $('notes-error').textContent = 'Could not open the camera: ' + err.message
+    $('photo-error').textContent = 'Could not open the camera: ' + err.message
   }
 })
 function closeCamera () {
   if (camStream) camStream.getTracks().forEach(t => t.stop())
   camStream = null
   $('cam').hidden = true
-  $('cam-btn').hidden = false
 }
 $('cam-close').addEventListener('click', closeCamera)
 $('cam-snap').addEventListener('click', () => {
   const v = $('cam-video')
+  if (!v.videoWidth) return
   const c = document.createElement('canvas')
   c.width = v.videoWidth
   c.height = v.videoHeight
   c.getContext('2d').drawImage(v, 0, 0)
-  c.toBlob(b => { closeCamera(); showPhoto(b, `notes-photo_${stamp()}.jpg`) }, 'image/jpeg', 0.92)
+  c.toBlob(b => { addPhoto(b); toast(`Page ${state.photos.length} captured`, 'camera') }, 'image/jpeg', 0.92)
 })
+
 $('photo-send').addEventListener('click', async () => {
-  if (!state.photo) return
+  if (!state.photos.length) return
+  $('photo-error').textContent = ''
   $('photo-send').disabled = true
-  try { await upload(state.photo.blob, state.photo.name, 'photo'); clearPhoto() } catch (err) { $('notes-error').textContent = err.message } finally { $('photo-send').disabled = false }
+  try {
+    const base = readName('photo-name')
+    const n = state.photos.length
+    for (let i = 0; i < n; i++) {
+      const p = state.photos[i]
+      await upload(p.blob, `${base}${n > 1 ? '_p' + (i + 1) : ''}${p.ext}`, 'photo')
+    }
+    closeCamera()
+    clearPhotos()
+    afterSend(n, n > 1 ? `${n} pages` : 'Photo')
+  } catch (err) { $('photo-error').textContent = err.message } finally { $('photo-send').disabled = false }
 })
-$('photo-discard').addEventListener('click', clearPhoto)
+
+// ---------- typed notes ----------
 
 $('notes-send').addEventListener('click', async () => {
   const text = $('notes-text').value.trim()
-  if (!text) { $('notes-error').textContent = 'Type some notes first.'; return }
   $('notes-error').textContent = ''
+  if (!text) { $('notes-error').textContent = 'Type some notes first.'; return }
   $('notes-send').disabled = true
   try {
-    await upload(new Blob([text + '\n'], { type: 'text/plain' }), `notes_${stamp()}.txt`, 'notes')
+    const name = readName('notes-name') + '.txt'
+    await upload(new Blob([text + '\n'], { type: 'text/plain' }), name, 'notes')
     $('notes-text').value = ''
+    delete $('notes-name').dataset.touched
+    afterSend(1, name)
   } catch (err) { $('notes-error').textContent = err.message } finally { $('notes-send').disabled = false }
 })
 
-// ---------- 4. outbox ----------
+// ---------- outbox ----------
 
-const STATUS = { queued: 'Queued', sending: 'Sending…', delivered: 'Delivered ✓', error: 'Failed' }
-const KIND = { recording: '🎙️', photo: '📷', notes: '📝', file: '📄' }
-
-async function refreshOutbox () {
-  try {
-    const items = await api('/api/outbox')
-    $('outbox-list').innerHTML = items.length
-      ? items.map(i => `<li><div><div class="name">${KIND[i.kind] || ''} ${esc(i.name)}</div><div class="sub">${size(i.size)} · added ${hhmm(i.createdAt)}${i.deliveredAt ? ' · delivered ' + hhmm(i.deliveredAt) : ''}${i.error ? ' · ' + esc(i.error) : ''}</div></div><span class="status st-${i.status}">${STATUS[i.status]}</span></li>`).join('')
-      : '<li class="empty">Nothing sent yet</li>'
-  } catch {}
+function renderOutbox () {
+  const items = state.outbox
+  const count = (st) => items.filter(i => i.status === st).length
+  const parts = [['queued', count('queued')], ['sending', count('sending')], ['delivered', count('delivered')], ['error', count('error')]].filter(([, n]) => n)
+  $('outbox-summary').innerHTML = parts.map(([st, n]) => `<span class="chip st-${st}">${icon(STATUS[st][0])}${n} ${STATUS[st][1].toLowerCase()}</span>`).join('')
+  $('outbox-list').innerHTML = items.length
+    ? items.map(i => itemRow(i, true)).join('')
+    : `<li class="empty">${icon('send')}<span>Nothing sent yet. Files go straight to the office PC, peer-to-peer. If the office is offline they wait here and send automatically.</span></li>`
 }
 
-// ---------- 5. backup (read-only) ----------
+// ---------- backup (read-only) ----------
+
+let backupInfo = null
+function renderBackup () {
+  const b = backupInfo
+  if (!b) return
+  const synced = $('backup-synced')
+  synced.className = 'synced ' + (b.online ? 'live' : 'stale')
+  synced.innerHTML = icon(b.online ? 'sync' : 'clock') + (b.lastSynced ? `Last synced ${hhmm(b.lastSynced)}` : 'Not synced yet') + (b.online ? ' · live' : ' · office offline, showing saved copy')
+  const nowIso = today()
+  const soon = today(new Date(Date.now() + 30 * 864e5))
+  let html
+  if (b.state === 'unpaired') html = `<li class="empty">${icon('link')}<span>Pair with the office PC to receive the backup.</span></li>`
+  else if (b.state === 'waiting') html = `<li class="empty">${icon('sync')}<span>Waiting for the first sync from the office PC…</span></li>`
+  else if (b.state === 'encrypted') html = `<li class="empty">${icon('lock')}<span>Encrypted backup: ${b.blocks} blocks stored. This device has no passphrase, so it can't read them.</span></li>`
+  else if (b.state === 'error') html = `<li class="empty">${icon('alert')}<span>${esc(b.error)}</span></li>`
+  else if (!b.plans.length) html = `<li class="empty">${icon('visit')}<span>No care plans yet.</span></li>`
+  else {
+    html = b.plans.map(p => {
+      const cls = !p.review_due ? 'due-ok' : p.review_due < nowIso ? 'due-overdue' : p.review_due <= soon ? 'due-soon' : 'due-ok'
+      const label = cls === 'due-overdue' ? 'Review overdue' : cls === 'due-soon' ? 'Review due soon' : 'Review due'
+      return `<li><div class="avatar sm ${avatarClass(p.name)}">${esc(initials(p.name))}</div>
+        <div class="grow"><div class="name" style="word-break:normal">${esc(p.name)}</div><div class="sub">Updated ${dateGB(p.last_updated)}</div></div>
+        <span class="chip chip-due ${cls}"><small>${label}</small>${dateGB(p.review_due)}</span></li>`
+    }).join('')
+  }
+  $('backup-list').innerHTML = html
+}
 
 async function refreshBackup () {
   try {
-    const b = await api('/api/backup')
-    $('backup-synced').textContent = (b.lastSynced ? `Last synced ${hhmm(b.lastSynced)}` : 'Last synced: never') + (b.online ? ' · live' : ' · office offline, showing the saved copy')
-    const today = new Date().toISOString().slice(0, 10)
-    const soon = new Date(Date.now() + 30 * 864e5).toISOString().slice(0, 10)
-    let html
-    if (b.state === 'unpaired') html = '<li class="empty">Pair with the office PC to get the backup</li>'
-    else if (b.state === 'waiting') html = '<li class="empty">Waiting for the first sync from the office PC…</li>'
-    else if (b.state === 'encrypted') html = `<li class="empty">Encrypted backup: ${b.blocks} blocks stored. This device has no passphrase, so it can't read them.</li>`
-    else if (b.state === 'error') html = `<li class="empty">${esc(b.error)}</li>`
-    else if (!b.plans.length) html = '<li class="empty">No care plans yet</li>'
-    else {
-      html = b.plans.map(p => {
-        const cls = !p.review_due ? 'due-ok' : p.review_due < today ? 'due-overdue' : p.review_due <= soon ? 'due-soon' : 'due-ok'
-        const label = cls === 'due-overdue' ? 'Review overdue' : cls === 'due-soon' ? 'Review due soon' : 'Review due'
-        return `<li><div><div class="name">${esc(p.name)}</div><div class="sub">Last updated ${dateGB(p.last_updated)}</div></div><span class="status ${cls}" title="${label}">${label}<br>${dateGB(p.review_due)}</span></li>`
-      }).join('')
-    }
-    $('backup-list').innerHTML = html
+    backupInfo = await api('/api/backup')
+    state.plans = backupInfo.plans || []
+    const names = [...new Set(state.plans.map(p => p.name))]
+    $('children').innerHTML = names.map(n => `<option value="${esc(n)}">`).join('')
+    if (current === 'backup') renderBackup()
   } catch {}
 }
 
-// ---------- start ----------
+// ---------- polling ----------
 
-async function poll () {
-  await refreshStatus()
-  const tab = location.hash.slice(1)
-  if (tab === 'outbox') refreshOutbox()
-  if (tab === 'backup') refreshBackup()
+async function refreshStatus () {
+  try { state.status = await api('/api/status') } catch { state.status = null }
+  renderPill()
+  if (current === 'pair') renderConnection()
 }
 
-refreshStatus().then(route)
-setInterval(poll, 2000)
+async function refreshOutbox () {
+  try {
+    state.outbox = await api('/api/outbox')
+    if (current === 'visit') renderVisit()
+    if (current === 'outbox') renderOutbox()
+  } catch {}
+}
+
+let ticks = 0
+async function poll () {
+  await refreshStatus()
+  await refreshOutbox()
+  if (current === 'backup' || ticks % 5 === 0) await refreshBackup()
+  ticks++
+}
+
+window.addEventListener('beforeunload', (e) => { if (state.recording) { e.preventDefault(); e.returnValue = '' } })
+
+;(async () => {
+  await refreshStatus()
+  await refreshOutbox()
+  await refreshBackup()
+  route()
+  setInterval(poll, 2000)
+})()
