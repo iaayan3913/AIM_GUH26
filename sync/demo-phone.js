@@ -45,6 +45,9 @@ async function openBackup (key) {
   console.log(`>> read-only backup of office care plans at ${path.join(dir, 'backup')}`)
   const seen = new Map()
   const show = async (initial) => {
+    if (await backup.canRead() === false) {
+      return console.log(`>> encrypted backup: ${backup.blocks()} blocks stored (ciphertext only; set FOBE_DB_PASSPHRASE to read)`)
+    }
     for (const p of await backup.listPlans()) {
       const prev = seen.get(p.child_id)
       if (initial || !prev) console.log(`   ${p.child_id}  ${p.first_name.value} ${p.surname.value} (saved ${p.saved_at})`)
@@ -56,10 +59,11 @@ async function openBackup (key) {
       seen.set(p.child_id, p)
     }
   }
-  const local = (await backup.listPlans()).length
-  if (local) { console.log(`   (local copy has ${local} plans, works offline)`); await show(true) }
+  const readable = await backup.canRead()
+  if (readable) console.log(`   (local copy has ${(await backup.listPlans()).length} plans, works offline)`)
+  if (readable !== null) await show(true)
   await backup.synced()
-  if (!local) await show(true)
+  if (readable === null) await show(true)
   let t = null
   backup.onChange(() => { clearTimeout(t); t = setTimeout(() => show(false).catch(() => {}), 300) })
 }
@@ -71,11 +75,11 @@ rl.on('line', async (line) => {
     if (!cmd) return
     if (cmd === 'plans') {
       if (!backup) return console.log('  no backup yet (start with --backup)')
+      if (await backup.canRead() === false) return console.log(`  encrypted backup: ${backup.blocks()} blocks, can't read without FOBE_DB_PASSPHRASE`)
       for (const p of await backup.listPlans()) console.log(`  ${p.child_id}  ${p.first_name.value} ${p.surname.value}  allergies: ${p.allergies.value}  (saved ${p.saved_at})`)
     } else if (cmd === 'write') {
       if (!backup) return console.log('  no backup yet (start with --backup)')
-      const [p] = await backup.listPlans()
-      await backup.putPlan({ ...p, allergies: { value: 'HACKED', source: null, status: 'filled' } })
+      await backup.putPlan({ child_id: 'FOBE-CHILD-0001', allergies: { value: 'HACKED', source: null, status: 'filled' } })
     } else if (cmd === 'quit' || cmd === 'exit') {
       await shutdown()
     } else if (cmd === 'help') {

@@ -10,7 +10,7 @@ Status key: ⬜ not started · 🟨 in progress · ✅ done · ❌ blocked (writ
 | B2 | Phone → office file transfer | "phone" laptop sends `demo-visit.wav` + notes photo, and the office receives it in `data/inbox/` through `onFileReceived` | 15:15 | ✅ (one laptop) | Phone writes files into its own Hyperdrive "outbox"; the office replicates it and copies new files to `sync/data/inbox/` (path is fixed to the sync folder, whatever the cwd). Files sent while the office is offline are queued and delivered on the next connection (good for the "Wi-Fi on" demo moment). Each file is delivered once (`data/inbox/.received.json`). |
 | B3 | Read-only backup replica | `replicaDb()` on laptop 2 shows the office's care plans and updates live when the office edits; writing to it is refused | 15:45 | ✅ (one laptop) | Phone gets the office DB key automatically after pairing. Replica downloads the full core, so it still works with the office off. `putPlan` throws "Read-only backup..."; raw Hyperbee writes also fail (not the writer). `onChange(cb)` fires on live updates. |
 | B4 | Venue Wi-Fi fallback | if peers can't find each other, run a local HyperDHT bootstrap on the LAN (or a hotspot) and document the exact command here | 16:00 | ✅ (one laptop) | `bootstrap.js` runs a private 3-node HyperDHT on the LAN (UDP 49737). Peers use it via `FOBE_BOOTSTRAP=ip:port` or `--bootstrap ip:port`, which replaces the public DHT entirely, so it works with no internet. Tested: pairing <1 s, file + live backup OK. Venue is **eduroam (Windows "Public" network)**, which usually blocks laptop-to-laptop traffic, so plan on the phone hotspot. See "Wi-Fi fallback" below. |
-| B5 | Encryption at rest (stretch) | the data folder isn't readable as plain text; document the method used | 16:15 | ⬜ | |
+| B5 | Encryption at rest (stretch) | the data folder isn't readable as plain text; document the method used | 16:15 | ✅ (one laptop) | Opt-in: set `FOBE_DB_PASSPHRASE`. Every Hypercore block (care plans on the office PC and the backups, plus the phone outbox with its recordings) is encrypted with XSalsa20 (libsodium, Hypercore block encryption). Key = Argon2id(passphrase) and is never saved to disk. A wrong or missing passphrase is refused on the office. A backup laptop **without** the passphrase still stores the ciphertext ("blind backup") but can't read it. Files in `data/inbox/` are plain so the AI can read them. `FOBE_DB_PASSPHRASE=x npm run test:p2p` scans every storage file for plaintext: none found. Unset = exactly as before. |
 
 ## Tests
 ```
@@ -49,6 +49,14 @@ Try the normal commands first. If `peer connected` doesn't appear within ~20 s:
    (remove it afterwards with `Remove-NetFirewallRule -DisplayName "FOBE node"`). Check with `ping <office IP>` from the phone laptop.
 - Test on one laptop: terminal 1 `node bootstrap.js --host 127.0.0.1`, then add `--bootstrap 127.0.0.1:49737` to both demo commands.
 - For the UI: set `$env:FOBE_BOOTSTRAP` before `npm start`. `startPeer` and `replicaDb` read it automatically.
+
+## Encryption at rest (B5)
+Use a **new** folder: an existing plain DB can't be switched to encrypted. Use the same passphrase on both laptops.
+- Office: `cd sync; $env:FOBE_DB_PASSPHRASE="fobe demo"; node seed.js ./data/office-secure; node demo-office.js --dir ./data/office-secure`
+- Phone: `cd sync; $env:FOBE_DB_PASSPHRASE="fobe demo"; node demo-phone.js <KEY> --backup --dir ./data/phone-secure`
+- Blind backup demo: run the phone command without the passphrase (and a different `--dir`). It prints `encrypted backup: N blocks stored (ciphertext only...)`.
+- Show it on screen: `Select-String -Path dataoffice-pcdb* -Pattern Maryam -SimpleMatch -List` finds the name in the plain DB. The same command on `dataoffice-securedb*` finds nothing.
+- UI: set `$env:FOBE_DB_PASSPHRASE` before `npm start`. `openDb`, `startPeer` and `replicaDb` pick it up automatically.
 
 ## For the UI (Person C): office side in ui/server.js
 ```js

@@ -5,16 +5,30 @@
 //   plan/<child_id>/latest          -> current plan (full JSON)
 //   plan/<child_id>/v/<ISO time>    -> every saved version (history, never deleted)
 
+//
+// Encryption at rest (optional): set FOBE_DB_PASSPHRASE (or pass { encryptionKey }) and every
+// Hypercore block is encrypted (XSalsa20, key = Argon2id(passphrase)). Unset = plain, as before.
+
 import Corestore from 'corestore'
 import Hyperbee from 'hyperbee'
+import sodium from 'sodium-universal'
 
-export async function openDb (storageDir = './data/office-pc', { key = null } = {}) {
+export async function openDb (storageDir = './data/office-pc', { key = null, encryptionKey = keyFromPassphrase(process.env.FOBE_DB_PASSPHRASE) } = {}) {
   const store = new Corestore(storageDir)
   await store.ready()
   // No key = we own the writable core. Key = read-only replica of someone else's db.
-  const core = key ? store.get({ key: Buffer.from(key, 'hex') }) : store.get({ name: 'care-plans' })
+  const encryption = encryptionKey ? { key: encryptionKey } : null
+  const core = key ? store.get({ key: Buffer.from(key, 'hex'), encryption }) : store.get({ name: 'care-plans', encryption })
   const bee = new Hyperbee(core, { keyEncoding: 'utf-8', valueEncoding: 'json' })
   await bee.ready()
+  // Office DB: refuse a wrong/missing passphrase up front. (Replicas may hold ciphertext only.)
+  if (core.writable && core.length > 0 && await core.has(0)) {
+    const header = await bee.getHeader({ wait: false }).catch(() => null)
+    if (header?.protocol !== 'hyperbee') {
+      await store.close()
+      throw new Error(`Cannot read care plans in ${storageDir}: ${encryptionKey ? 'wrong passphrase, or the data is not encrypted' : 'the data is encrypted, set FOBE_DB_PASSPHRASE'}`)
+    }
+  }
 
   return {
     store,
@@ -112,4 +126,14 @@ export function reviewDue (lastUpdated) {
   const d = new Date(lastUpdated)
   d.setFullYear(d.getFullYear() + 1)
   return d.toISOString().slice(0, 10)
+}
+
+// 32-byte encryption key from a passphrase (Argon2id). Same passphrase = same key on every device.
+export function keyFromPassphrase (passphrase) {
+  if (!passphrase) return null
+  const out = Buffer.alloc(32)
+  const salt = Buffer.alloc(sodium.crypto_pwhash_SALTBYTES)
+  sodium.crypto_generichash(salt, Buffer.from('fobe-care-plans-v1'))
+  sodium.crypto_pwhash(out, Buffer.from(passphrase), salt, sodium.crypto_pwhash_OPSLIMIT_INTERACTIVE, sodium.crypto_pwhash_MEMLIMIT_INTERACTIVE, sodium.crypto_pwhash_ALG_ARGON2ID13)
+  return out
 }

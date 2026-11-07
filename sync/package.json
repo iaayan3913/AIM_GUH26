@@ -21,6 +21,7 @@
     "hyperdrive": "^13.3.4",
     "hyperswarm": "^4.17.2",
     "protomux": "^3.13.0",
+    "sodium-universal": "^5.0.1",
     "z32": "^1.1.0"
   }
 }

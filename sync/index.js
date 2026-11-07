@@ -30,7 +30,7 @@ import path from 'node:path'
 import os from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { pipeline } from 'node:stream/promises'
-import { openDb } from './db.js'
+import { openDb, keyFromPassphrase } from './db.js'
 
 export * from './db.js'
 
@@ -77,7 +77,7 @@ export function onFileReceived (cb) {
 
 // ---------- startPeer ----------
 
-export async function startPeer ({ db = null, role, pairingKey = null, dir = null, inboxDir = INBOX_DIR, name = null, bootstrap = null } = {}) {
+export async function startPeer ({ db = null, role, pairingKey = null, dir = null, inboxDir = INBOX_DIR, name = null, bootstrap = null, encryptionKey = keyFromPassphrase(process.env.FOBE_DB_PASSPHRASE) } = {}) {
   if (role !== 'office' && role !== 'phone') throw new Error("role must be 'office' or 'phone'")
   if (role === 'office' && !db?.writable) throw new Error('office needs its own writable db (openDb)')
 
@@ -101,7 +101,7 @@ export async function startPeer ({ db = null, role, pairingKey = null, dir = nul
   // Phone owns its outbox drive in its own corestore. Office uses the db's corestore.
   const ownStore = role === 'phone' ? new Corestore(path.join(dir, 'outbox')) : null
   const store = ownStore || db.store
-  const outbox = role === 'phone' ? new Hyperdrive(store.namespace('fobe-outbox')) : null
+  const outbox = role === 'phone' ? new Hyperdrive(store.namespace('fobe-outbox'), { encryptionKey }) : null
   if (outbox) await outbox.ready()
 
   const peer = {
@@ -182,7 +182,7 @@ export async function startPeer ({ db = null, role, pairingKey = null, dir = nul
       if (m.type === 'hello' && /^[0-9a-f]{64}$/.test(m.driveKey || '')) {
         let r = remotes.get(m.driveKey)
         if (!r) {
-          const drive = new Hyperdrive(store, b4a.from(m.driveKey, 'hex'))
+          const drive = new Hyperdrive(store, b4a.from(m.driveKey, 'hex'), { encryptionKey })
           await drive.ready()
           r = { drive, name: m.name, queue: Promise.resolve() }
           remotes.set(m.driveKey, r)
@@ -259,12 +259,12 @@ export async function sendFile (peer, filePath, { onQueued } = {}) {
 
 // Read-only backup of the office's care plans. Same API as openDb (getPlan, listPlans, history),
 // plus onChange(cb) and synced(). putPlan throws: only the office PC writes care plans.
-export async function replicaDb (dir, officeDbKey, { bootstrap = null } = {}) {
+export async function replicaDb (dir, officeDbKey, { bootstrap = null, ...dbOpts } = {}) {
   const keyFile = path.join(dir, 'office-db-key.txt')
   if (!officeDbKey) officeDbKey = readIfExists(keyFile)
   if (!/^[0-9a-f]{64}$/i.test(officeDbKey || '')) throw new Error('replicaDb needs the office DB key (64 hex chars)')
 
-  const db = await openDb(dir, { key: officeDbKey })
+  const db = await openDb(dir, { ...dbOpts, key: officeDbKey })
   if (db.writable) { await db.close(); throw new Error('That is the office database itself, not a replica') }
   fs.writeFileSync(keyFile, officeDbKey.toLowerCase() + '\n')
 
@@ -294,6 +294,14 @@ export async function replicaDb (dir, officeDbKey, { bootstrap = null } = {}) {
       return db.core.length
     },
     get peers () { return swarm.connections.size },
+    // false = encrypted backup and this device has no (or the wrong) FOBE_DB_PASSPHRASE: it stores
+    // and serves the ciphertext but can't show plans. null = nothing downloaded yet.
+    async canRead () {
+      if (db.core.length === 0 || !(await db.core.has(0))) return null
+      const header = await db.bee.getHeader({ wait: false }).catch(() => null)
+      return header?.protocol === 'hyperbee'
+    },
+    blocks () { return db.core.contiguousLength },
     async close () { await swarm.destroy(); await closeDb() }
   }
 }

@@ -65,10 +65,27 @@ await assert.rejects(backup.putPlan(p), /Read-only/)
 await assert.rejects(backup.bee.put('x', 'y'))
 step('B3 writes to the replica are refused')
 
-await backup.close()
-await phone.close()
-await office.close()
-await db.close()
+if (process.env.FOBE_DB_PASSPHRASE) {
+  // blind backup: a device WITHOUT the passphrase still replicates and stores the ciphertext
+  const blind = await replicaDb(path.join(root, 'blind'), db.key, { bootstrap, encryptionKey: null })
+  await blind.synced()
+  while (blind.blocks() < db.core.length) await new Promise(r => setTimeout(r, 100))
+  assert.equal(await blind.canRead(), false)
+  await blind.close()
+  await backup.close(); await phone.close(); await office.close(); await db.close()
+  const { readdir } = await import('node:fs/promises')
+  for (const sub of ['office-pc', 'backup', 'blind', 'phone']) {
+    for (const f of await readdir(path.join(root, sub), { recursive: true, withFileTypes: true })) {
+      if (!f.isFile()) continue
+      const buf = await readFile(path.join(f.parentPath, f.name))
+      for (const word of ['Maryam', 'FOBE-CHILD', 'Epilepsy', 'plan/', 'demo-visit']) assert.ok(!buf.includes(word), `plaintext "${word}" in ${sub}/${f.name}`)
+    }
+  }
+  step('B5 no plaintext in office DB, backup, blind backup or phone outbox; blind backup holds ciphertext only')
+} else {
+  await backup.close(); await phone.close(); await office.close(); await db.close()
+}
 await testnet.destroy()
 await rm(root, { recursive: true, force: true })
-console.log('p2p test passed: pairing, file transfer, read-only live replica')
+console.log('p2p test passed: pairing, file transfer, read-only live replica' + (process.env.FOBE_DB_PASSPHRASE ? ', encryption at rest' : ''))
+process.exit(0)
