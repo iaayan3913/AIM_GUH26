@@ -1,8 +1,14 @@
 // New visit: recording / photo of notes / typed notes -> progress -> review.
-import { api, esc, fullName, toast, auth } from './util.js'
+import { api, esc, fullName, toast, auth, routeParams } from './util.js'
 import { renderPlan, collectPlan, flagSummary, wireJumps } from './planform.js'
 
-export async function renderVisit (main, childId = '', prefill = {}) {
+export async function renderVisit (main, childId = '') {
+  // Files picked in the work-phone inbox arrive as #/visit?audio=..&photo=..&text=..
+  const q = routeParams()
+  const prefill = { audioPath: q.get('audio'), photoPath: q.get('photo'), textName: q.get('text') }
+  prefill.audioName = prefill.audioPath
+  prefill.photoName = prefill.photoPath
+  const fromPhone = [prefill.audioPath, prefill.photoPath, prefill.textName].filter(Boolean)
   const children = await api('/api/children')
   main.innerHTML = `
     <h1>New visit</h1>
@@ -44,6 +50,11 @@ export async function renderVisit (main, childId = '', prefill = {}) {
   `
 
   const form = main.querySelector('#visit')
+  if (prefill.textName) {
+    api(`/api/inbox/text/${encodeURIComponent(prefill.textName)}`)
+      .then((d) => { main.querySelector('#notes').value = d.text })
+      .catch((e) => toast(e.message, 'error'))
+  }
   form.addEventListener('submit', async (e) => {
     e.preventDefault()
     if (!(await auth.ensure('start a new visit'))) return
@@ -57,7 +68,8 @@ export async function renderVisit (main, childId = '', prefill = {}) {
     }
     form.querySelector('[type=submit]').disabled = true
     try {
-      const { jobId } = await api('/api/visits', { method: 'POST', body: fd })
+      const { jobId, childId: cid } = await api('/api/visits', { method: 'POST', body: fd })
+      if (fromPhone.length) api('/api/inbox/used', { method: 'POST', body: { names: fromPhone, childId: cid } }).catch(() => {})
       form.hidden = true
       main.querySelector('#progress').hidden = false
       await poll(main, jobId)

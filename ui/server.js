@@ -184,7 +184,7 @@ app.post('/api/visits', gate, upload.fields([{ name: 'audio', maxCount: 1 }, { n
       Object.assign(job, { status: 'error', error: e.message || String(e) })
     } finally { busy = false }
   })
-  res.json({ jobId: id })
+  res.json({ jobId: id, childId })
 }))
 let aiQueue = Promise.resolve()
 let busy = false

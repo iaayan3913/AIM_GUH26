@@ -13,7 +13,7 @@ export async function api (path, opts = {}) {
   let data = null
   try { data = text ? JSON.parse(text) : null } catch { data = { error: text } }
   // Session ended (e.g. server restarted): ask for the YubiKey, then retry once.
-  if (res.status === 401 && !opts._retried && !path.startsWith('/api/auth/')) {
+  if (res.status === 401 && !opts._retried && !opts.quiet && !path.startsWith('/api/auth/')) {
     auth.user = null
     if (await auth.ensure('continue')) return api(path, { ...opts, _retried: true })
   }
@@ -55,6 +55,9 @@ export function reviewBadge (c) {
   if (c.review_status === 'ok') return `<span class="badge ok">Review ${esc(fmtDate(c.review_due))}</span>`
   return '<span class="badge grey">No review date</span>'
 }
+
+// "#/visit?audio=x.wav" -> URLSearchParams
+export const routeParams = () => new URLSearchParams(location.hash.split('?')[1] || '')
 
 // Signed-in family worker. ensure() / signOff() are filled in by auth.js (YubiKey).
 export const auth = {

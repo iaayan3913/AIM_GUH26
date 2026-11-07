@@ -14,14 +14,14 @@ export async function mountInbox (app, { sync, db, gate, wrap, dataDir }) {
   const from = new Map() // file name -> sender name
   const usedFile = path.join(dataDir, 'inbox-used.json')
   const used = (() => { try { return JSON.parse(fs.readFileSync(usedFile, 'utf8')) } catch { return {} } })()
-  const inboxDir = sync.INBOX_DIR || null
+  const inboxDir = process.env.FOBE_INBOX_DIR || sync.INBOX_DIR || null
   let peer = null
 
   if (process.env.FOBE_P2P === '0') state.error = 'Peer-to-peer is switched off (FOBE_P2P=0)'
   else if (typeof sync.startPeer !== 'function') state.error = 'Peer-to-peer is not available (run npm install in /sync)'
   else {
     try {
-      peer = await sync.startPeer({ db, role: 'office' })
+      peer = await sync.startPeer({ db, role: 'office', inboxDir })
       state.p2p = true
       state.pairingKey = peer.pairingKey
       peer.onPeer((p) => { state.peers.set(p.name, { name: p.name, since: new Date().toISOString() }); console.log(`[p2p] connected: ${p.name}`) })
