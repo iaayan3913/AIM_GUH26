@@ -43,7 +43,21 @@ if (cmd === 'transcribe') {
   const t = ai.lanyardText(JSON.parse(await readFile(a, 'utf8')), b ? b.split(',') : [])
   assert.ok(t.length <= 130)
   console.log(t, `(${t.length} chars)`)
+} else if (cmd === 'selftest') { // no models needed
+  const src = "He's allergic to eggs, he gets a rash. Fourteenth of March, 2017."
+  assert.equal(ai.quoteMatch("allergic to eggs", src), 'exact')
+  assert.equal(ai.quoteMatch('March 14, 2017', src), 'close')
+  assert.equal(ai.quoteMatch('Mum Aisha 07700 900106', src), 'none')
+  assert.equal(ai.quoteMatch('', src), 'none')
+  const plan = JSON.parse(await readFile(new URL('../shared/careplan.example.json', import.meta.url), 'utf8'))
+  const lt = ai.lanyardText(plan)
+  assert.ok(lt.length <= 130 && !/Qureshi|Autism|Pakistani|2015/.test(lt), lt)
+  assert.ok(/Qureshi/.test(ai.lanyardText(plan, ['surname'])))
+  const merged = ai.mergePlans(plan, { ...plan, medication: { value: 'None', source: 'x', status: 'filled' }, dob: { value: null, source: null, status: 'missing' } })
+  assert.equal(merged.medication.value, 'None')
+  assert.equal(merged.dob.value, '2015-06-02')
+  console.log('selftest ok |', lt)
 } else {
-  console.log('usage: node test.js transcribe|plan|ocr|lanyard <file> [file] [--use-cache]')
+  console.log('usage: node test.js transcribe|plan|ocr|lanyard|selftest <file> [file] [--use-cache]')
 }
 process.exit(0)

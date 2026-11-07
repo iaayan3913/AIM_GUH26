@@ -34,18 +34,25 @@ function model (name, modelConfig) {
   return loaded[name]
 }
 const asr = () => model(ASR_MODEL, { language: 'auto', translate: false, temperature: 0, contextParams: { use_gpu: true, flash_attn: true } })
-const llm = () => model(LLM_MODEL, { ctx_size: 4096, temp: 0, reasoning_budget: 0 })
+const llm = () => model(LLM_MODEL, { ctx_size: 4096, temp: 0, reasoning_budget: 0, device: process.env.FOBE_DEVICE || 'cpu' }) // CPU measured faster than Iris Xe: 9.5 vs 7.7 tok/s
 
-async function chat (system, user, schema) {
+// Call at server start so the first request doesn't pay ~45 s of model loading.
+export async function warmup () { await Promise.all([asr(), llm()]) }
+
+async function chat (system, user, schema, kvCache) {
+  const t = Date.now()
   const run = q.completion({
     modelId: await llm(),
     history: [{ role: 'system', content: system + ' /no_think' }, { role: 'user', content: user }],
     stream: true,
     generationParams: { temp: 0, predict: 700, reasoning_budget: 0 },
+    ...(kvCache && { kvCache }),
     ...(schema && { responseFormat: { type: 'json_schema', json_schema: { name: 'out', schema } } })
   })
   for await (const _ of run.events); // eslint-disable-line no-unused-vars
-  const text = (await run.final).contentText.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
+  const final = await run.final
+  if (process.env.FOBE_DEBUG) console.error('   llm', Date.now() - t, 'ms', JSON.stringify(await run.stats))
+  const text = final.contentText.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
   return schema ? JSON.parse(text) : text
 }
 
@@ -66,7 +73,7 @@ export async function transcribe (audioPath, onProgress = noop) {
         ? text
         : await chat('Translate the user text (Urdu, Bengali, Hindi or mixed) into plain English. Reply with the translation only.', text)
       segments.push({ start: s.startMs / 1000, end: s.endMs / 1000, text, english })
-      onProgress('translating', 50 + Math.round((50 * (i + 1)) / raw.length))
+      onProgress('translating to English', 50 + Math.round((50 * (i + 1)) / raw.length))
     }
     const langs = [...new Set(segments.map((s) => scriptOf(s.text)))]
     return {
@@ -107,44 +114,52 @@ const SECTIONS = [
   } }
 ]
 const HEALTH = { diagnosis: /diagnos|\bdx\b/i, medication: /medic|\bmeds?\b|tablet|inhaler|dose/i, allergies: /allerg/i }
+const MUST_MENTION = { photo_consent: /photo|picture/i } // else the model confuses recording consent with photo consent
 
 const SYSTEM = 'You fill in one section of a disabled child\'s care plan from a family visit. Use ONLY facts stated in the SOURCE. ' +
   'Never guess or infer. If a field is not stated, set value and quote to "". ' +
-  'quote = a few exact words copied from the SOURCE that support the value.'
+  'quote = 3 to 12 exact words copied from the SOURCE that support the value. Keep values short.'
+
+// source goes in the system prompt so all sections share one prefix (KV-cache reuse)
+const withSource = (source) => `${SYSTEM}\n\nSOURCE:\n<<<\n${source}\n>>>`
+const kvKey = (source) => 'plan-' + createHash('sha1').update(source).digest('hex').slice(0, 12)
 
 const norm = (s) => String(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
-// fraction of the quote's words found in the source (small models paraphrase slightly)
-function quoteScore (quote, source) {
-  const words = norm(quote).split(' ').filter(Boolean)
-  if (!words.length) return 0
+// Is the quote really in the source? 'exact' = most word pairs appear in order,
+// 'close' = most single words appear (small models paraphrase slightly), else 'none' (likely invented).
+export function quoteMatch (quote, source) {
+  const q = norm(quote ?? '').split(' ').filter(Boolean)
+  if (!q.length) return 'none'
   const src = ' ' + norm(source) + ' '
-  return words.filter((w) => src.includes(' ' + w + ' ')).length / words.length
+  const frac = (grams) => grams.filter((g) => src.includes(' ' + g + ' ')).length / grams.length
+  const pairs = q.slice(1).map((w, i) => q[i] + ' ' + w)
+  if (frac(pairs.length ? pairs : q) >= 0.6) return 'exact'
+  return frac(q) >= 0.6 ? 'close' : 'none'
 }
 
 const MISSING = () => ({ value: null, source: null, status: 'missing' })
 
 function leaf (key, value, quote, source) {
-  const v = Array.isArray(value) ? (value.length ? value : null) : String(value ?? '').trim()
-  if (!v || /^(not (stated|mentioned|specified)|unknown|n\/?a|none stated)$/i.test(v)) return MISSING()
-  const verified = quote && quoteScore(quote, source) >= 0.7
+  const v = String(value ?? '').trim()
+  if (!v || /^(not (stated|mentioned|specified|known)|unknown|n\/?a|none stated|-)$/i.test(v)) return MISSING()
+  const match = quoteMatch(quote, source)
+  if (match === 'none') return MISSING() // never invent: no supporting quote = not stated
+  if (MUST_MENTION[key] && !MUST_MENTION[key].test(quote)) return MISSING()
   if (key in HEALTH) {
-    // never guess medication/allergies/diagnosis: no verifiable quote -> missing; not explicit -> needs_review
-    if (!verified) return MISSING()
-    return { value: v, source: quote, status: HEALTH[key].test(quote) ? 'filled' : 'needs_review' }
+    // medication/allergies/diagnosis: filled only when the quote states it explicitly
+    return { value: v, source: quote, status: match === 'exact' && HEALTH[key].test(quote) ? 'filled' : 'needs_review' }
   }
-  if (key === 'dob' && !(/^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(Date.parse(v)))) {
-    return { value: v, source: quote || null, status: 'needs_review' }
-  }
-  return { value: v, source: quote || null, status: verified ? 'filled' : 'needs_review' }
+  const okDate = key !== 'dob' || (/^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(Date.parse(v)))
+  return { value: v, source: quote, status: match === 'exact' && okDate ? 'filled' : 'needs_review' }
 }
 
 async function section ({ fields }, source) {
   const props = Object.fromEntries(Object.keys(fields).map((k) => [k, {
-    type: 'object', properties: { value: { type: 'string' }, quote: { type: 'string' } }, required: ['value', 'quote'], additionalProperties: false
+    type: 'object', properties: { value: { type: 'string', maxLength: 160 }, quote: { type: 'string', maxLength: 100 } }, required: ['value', 'quote'], additionalProperties: false
   }]))
   const list = Object.entries(fields).map(([k, d]) => `- ${k}: ${d}`).join('\n')
-  const out = await chat(SYSTEM, `SOURCE:\n<<<\n${source}\n>>>\n\nFields:\n${list}\n\nReply as JSON.`,
-    { type: 'object', properties: props, required: Object.keys(fields), additionalProperties: false })
+  const out = await chat(withSource(source), `Fields:\n${list}\n\nReply as JSON.`,
+    { type: 'object', properties: props, required: Object.keys(fields), additionalProperties: false }, kvKey(source))
   return Object.fromEntries(Object.keys(fields).map((k) => [k, leaf(k, out[k]?.value, out[k]?.quote, source)]))
 }
 
@@ -152,16 +167,21 @@ async function listSection (source, itemDesc, itemProps) {
   const schema = {
     type: 'object',
     properties: { items: { type: 'array', maxItems: 6, items: {
-      type: 'object', properties: { ...Object.fromEntries(itemProps.map((p) => [p, { type: 'string' }])), quote: { type: 'string' } },
+      type: 'object', properties: { ...Object.fromEntries(itemProps.map((p) => [p, { type: 'string', maxLength: 100 }])), quote: { type: 'string', maxLength: 100 } },
       required: [...itemProps, 'quote'], additionalProperties: false
     } } },
     required: ['items'], additionalProperties: false
   }
-  const out = await chat(SYSTEM, `SOURCE:\n<<<\n${source}\n>>>\n\nList ${itemDesc}. Fields per item: ${itemProps.join(', ')}, quote. ` +
-    'Use an empty list if none are stated. Reply as JSON.', schema)
-  const items = (out.items || []).filter((it) => it[itemProps[0]]?.trim() && quoteScore(it.quote, source) >= 0.5)
+  const out = await chat(withSource(source), `List ${itemDesc}. Fields per item: ${itemProps.join(', ')}, quote. ` +
+    'Use an empty list if none are stated. Reply as JSON.', schema, kvKey(source))
+  const seen = new Set()
+  const items = (out.items || []).filter((it) => {
+    const k = norm(it[itemProps[0]] ?? '')
+    if (!k || seen.has(k) || quoteMatch(it.quote, source) === 'none') return false
+    return seen.add(k)
+  })
   if (!items.length) return MISSING()
-  const verified = items.every((it) => quoteScore(it.quote, source) >= 0.7)
+  const verified = items.every((it) => quoteMatch(it.quote, source) === 'exact')
   return {
     value: items.map(({ quote, ...rest }) => rest),
     source: items.map((it) => `"${it.quote}"`).join('; '),
