@@ -6,6 +6,7 @@ const icon = (name, cls = '') => `<svg class="ic ${cls}" aria-hidden="true"><use
 const state = {
   status: null,
   outbox: [],
+  drafts: [],
   plans: [],
   visit: loadVisit(),
   recording: null,
@@ -47,8 +48,11 @@ const slug = (s) => String(s || '').replace(BAD, '').trim().replace(/\s+/g, '-')
 const cleanBase = (s) => String(s || '').replace(BAD, '').trim().replace(/\.(wav|txt|jpe?g|png|webp|m4a|ogg|mp3)$/i, '')
 const KIND_OF_TYPE = { recording: 'recording', audio: 'audio', 'notes-photo': 'photo', notes: 'notes' }
 function defaultName (type) {
-  const n = visitItems().filter(i => i.kind === KIND_OF_TYPE[type]).length + 1
-  return `${slug(state.visit?.child)}_${type}_${today()}_${n}`
+  const base = `${slug(state.visit?.child)}_${type}_${today()}_`
+  const used = (n) => visitItems().some(d => d.name.startsWith(base + n + '.') || d.name.startsWith(base + n + '_p'))
+  let n = 1
+  while (used(n)) n++
+  return base + n
 }
 function setName (inputId, type, force = false) {
   const el = $(inputId)
@@ -75,21 +79,29 @@ function saveVisit (v) {
   if (v) localStorage.setItem('fobe.visit', JSON.stringify(v))
   else localStorage.removeItem('fobe.visit')
 }
-const visitItems = () => state.visit ? state.outbox.filter(i => i.visitId === state.visit.id) : []
+// Files added during a visit are drafts on this phone; "Finish visit" sends them all.
+const visitItems = () => state.visit ? state.drafts.filter(d => d.visitId === state.visit.id) : []
 
 async function upload (blob, name, kind) {
-  if (!state.status?.paired) { location.hash = '#pair'; throw new Error('Pair with the office PC first') }
-  const q = new URLSearchParams({ name, kind, child: state.visit?.child || '', visit: state.visit?.id || '' })
-  const item = await api('/api/files?' + q, { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: blob })
-  state.outbox = [item, ...state.outbox.filter(i => i.id !== item.id)]
+  if (!state.visit) throw new Error('Start a visit first')
+  const q = new URLSearchParams({ name, kind, child: state.visit.child, visit: state.visit.id })
+  const d = await api('/api/drafts?' + q, { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: blob })
+  state.drafts = [...state.drafts.filter(x => x.id !== d.id), d]
   renderVisit()
-  return item
+  return d
 }
 
 function afterSend (count, label) {
-  const online = state.status?.connected
-  toast(online ? `${label} sent to the office` : `${label} saved. It will send when the office is online`, online ? 'check-circle' : 'clock')
+  toast(`${label} added to the visit`, 'check-circle')
   location.hash = '#visit'
+}
+
+async function refreshDrafts () {
+  if (!state.visit) { state.drafts = []; return }
+  try {
+    state.drafts = await api('/api/drafts?visit=' + encodeURIComponent(state.visit.id))
+    if (current === 'visit') renderVisit()
+  } catch {}
 }
 
 // ---------- navigation ----------
@@ -213,16 +225,86 @@ function renderVisit () {
     return
   }
   const items = visitItems()
+  const n = items.length
+  const files = n === 1 ? 'file' : 'files'
   $('visit-avatar').className = 'avatar ' + avatarClass(v.child)
   $('visit-avatar').textContent = initials(v.child)
   if (!$('visit-child').querySelector('input')) $('visit-child').textContent = v.child
-  $('visit-sub').textContent = `Started ${hhmm(v.startedAt)} · ${items.length} ${items.length === 1 ? 'file' : 'files'}`
-  $('visit-count').textContent = items.length || ''
-  $('visit-list').innerHTML = items.length
-    ? items.map(i => itemRow(i, false)).join('')
-    : `<li class="empty">${icon('plus')}<span>Nothing added yet. Record audio, add a photo of your notes or type notes. You can keep adding until you finish the visit.</span></li>`
+  $('visit-sub').textContent = `Started ${hhmm(v.startedAt)} · ${n ? `${n} ${files} ready to send` : 'no files yet'}`
+  $('visit-count').textContent = n || ''
+  // don't redraw the list while a file is being renamed
+  if (!$('visit-list').querySelector('input')) {
+    $('visit-list').innerHTML = n
+      ? items.map(draftRow).join('')
+      : `<li class="empty">${icon('plus')}<span>Nothing added yet. Record audio, upload audio, add photos of your notes or type notes. Everything stays here until you finish the visit.</span></li>`
+  }
+  $('visit-hint').hidden = !n
+  $('visit-finish-label').textContent = n ? `Finish visit & send ${n} ${files}` : 'Finish visit'
   $('visit-finish').disabled = !!state.recording
 }
+
+const draftRow = (d) => `<li data-id="${d.id}">
+  ${d.kind === 'photo'
+    ? `<img class="kind-ic thumb-ic" src="/api/drafts/${d.id}/file" alt="">`
+    : `<span class="kind-ic kind-${d.kind}">${icon(KIND_ICON[d.kind] || 'note')}</span>`}
+  <div class="grow"><div class="name">${esc(d.name).replace(/([_-])/g, '$1<wbr>')}</div>
+  <div class="sub">${size(d.size)} · added ${hhmm(d.createdAt)}</div></div>
+  <div class="row-actions">
+    ${d.kind === 'recording' || d.kind === 'audio' ? `<button class="icon-btn sm" data-act="play" aria-label="Play ${esc(d.name)}">${icon('play')}</button>` : ''}
+    <button class="icon-btn sm" data-act="rename" aria-label="Rename ${esc(d.name)}">${icon('pencil')}</button>
+    <button class="icon-btn sm danger" data-act="delete" aria-label="Remove ${esc(d.name)}">${icon('trash')}</button>
+  </div></li>`
+
+const splitExt = (name) => { const m = name.match(/^(.*?)(\.[a-z0-9]{1,5})?$/i); return [m[1], m[2] || ''] }
+
+let player = null
+$('visit-list').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-act]')
+  if (!btn) return
+  const li = btn.closest('li')
+  const d = state.drafts.find(x => x.id === li.dataset.id)
+  if (!d) return
+  $('finish-error').textContent = ''
+  if (btn.dataset.act === 'delete') {
+    if (!confirm(`Remove ${d.name} from this visit?`)) return
+    await api('/api/drafts/' + d.id, { method: 'DELETE' }).catch(() => {})
+    state.drafts = state.drafts.filter(x => x.id !== d.id)
+    renderVisit()
+    toast(`${d.name} removed`, 'trash')
+  } else if (btn.dataset.act === 'play') {
+    if (player && !player.paused && player.dataset.id === d.id) { player.pause(); return }
+    if (player) player.pause()
+    player = new Audio('/api/drafts/' + d.id + '/file')
+    player.dataset.id = d.id
+    player.play().catch(() => {})
+  } else if (btn.dataset.act === 'rename') {
+    const [base, ext] = splitExt(d.name)
+    const nameEl = li.querySelector('.name')
+    nameEl.innerHTML = `<div class="name-field"><input class="input" autocomplete="off" spellcheck="false" aria-label="New file name"><span class="ext">${esc(ext)}</span></div>`
+    const inp = nameEl.querySelector('input')
+    inp.value = base
+    inp.focus()
+    inp.select()
+    let finished = false
+    const done = async (save) => {
+      if (finished) return
+      finished = true
+      const nb = cleanBase(inp.value)
+      if (save && nb && nb + ext !== d.name) {
+        try {
+          const upd = await api('/api/drafts/' + d.id, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: nb + ext }) })
+          Object.assign(d, upd)
+          toast(`Renamed to ${upd.name}`, 'pencil')
+        } catch (err) { $('finish-error').textContent = err.message }
+      }
+      nameEl.innerHTML = ''
+      renderVisit()
+    }
+    inp.addEventListener('input', () => { inp.value = inp.value.replace(BAD, '') })
+    inp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') done(true); if (ev.key === 'Escape') done(false) })
+    inp.addEventListener('blur', () => done(true))
+  }
+})
 
 function startVisit (name) {
   const child = name.replace(/\s+/g, ' ').trim()
@@ -247,14 +329,25 @@ $('visit-rename').addEventListener('click', () => {
   inp.focus()
   inp.select()
   let finished = false
-  const done = (save) => {
+  const done = async (save) => {
     if (finished) return
     finished = true
     const v = inp.value.replace(/\s+/g, ' ').trim()
-    if (save && v && v !== state.visit.child) {
+    const old = state.visit.child
+    if (save && v && v !== old) {
       saveVisit({ ...state.visit, child: v })
       for (const id of ['rec-name', 'audio-name', 'photo-name', 'notes-name']) delete $(id).dataset.touched
-      toast(`New files will be named ${slug(v)}_…`, 'pencil')
+      // rename files already in the visit that use the old name
+      const oldPrefix = slug(old) + '_'
+      let renamed = 0
+      for (const d of visitItems()) {
+        if (!d.name.startsWith(oldPrefix)) continue
+        try {
+          Object.assign(d, await api('/api/drafts/' + d.id, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: slug(v) + '_' + d.name.slice(oldPrefix.length), child: v }) }))
+          renamed++
+        } catch {}
+      }
+      toast(renamed ? `Renamed ${renamed} ${renamed === 1 ? 'file' : 'files'} to ${slug(v)}_…` : `Files will be named ${slug(v)}_…`, 'pencil')
     }
     box.textContent = state.visit.child
     renderVisit()
@@ -263,12 +356,32 @@ $('visit-rename').addEventListener('click', () => {
   inp.addEventListener('blur', () => done(true))
 })
 
-$('visit-finish').addEventListener('click', () => {
+$('visit-finish').addEventListener('click', async () => {
   const n = visitItems().length
   const child = state.visit.child
-  saveVisit(null)
-  renderVisit()
-  toast(`Visit for ${child} finished · ${n} ${n === 1 ? 'file' : 'files'}`, 'check-circle')
+  $('finish-error').textContent = ''
+  if (n && !state.status?.paired) { $('finish-error').textContent = 'Pair with the office PC first (Connection tab).'; return }
+  const btn = $('visit-finish')
+  btn.disabled = true
+  try {
+    if (n) {
+      $('visit-finish-label').textContent = `Sending ${n} ${n === 1 ? 'file' : 'files'}…`
+      const r = await api(`/api/visits/${encodeURIComponent(state.visit.id)}/finish`, { method: 'POST' })
+      state.outbox = [...r.sent.reverse(), ...state.outbox]
+    }
+    saveVisit(null)
+    state.drafts = []
+    renderVisit()
+    const online = state.status?.connected
+    if (!n) toast(`Visit for ${child} finished`, 'check-circle')
+    else toast(online ? `Visit finished · ${n} ${n === 1 ? 'file' : 'files'} sent to the office` : `Visit finished · ${n} ${n === 1 ? 'file' : 'files'} queued until the office is online`, online ? 'send' : 'clock')
+    if (n) location.hash = '#outbox'
+  } catch (err) {
+    $('finish-error').textContent = err.message
+    renderVisit()
+  } finally {
+    btn.disabled = !!state.recording
+  }
 })
 
 // ---------- record (MediaRecorder -> 16 kHz mono WAV) ----------
@@ -277,7 +390,7 @@ function updateRecButton () {
   if (state.recording) return
   const ok = $('consent').checked && !state.wav
   $('rec-btn').disabled = !ok
-  $('rec-hint').textContent = state.wav ? 'Send or discard this recording to record another.' : $('consent').checked ? 'Press the button to start recording.' : 'Tick the consent box to start.'
+  $('rec-hint').textContent = state.wav ? 'Add or discard this recording to record another.' : $('consent').checked ? 'Press the button to start recording.' : 'Tick the consent box to start.'
 }
 $('consent').addEventListener('change', updateRecButton)
 $('rec-btn').addEventListener('click', () => state.recording ? stopRecording() : startRecording())
@@ -339,7 +452,7 @@ async function finishRecording (stream, blob) {
     setName('rec-name', 'recording')
     $('rec-review').hidden = false
     updateRecButton()
-    if (current !== 'record') toast('Recording stopped. Open Record audio to send it.', 'mic')
+    if (current !== 'record') toast('Recording stopped. Open Record audio to add it to the visit.', 'mic')
   } catch (err) {
     $('rec-error').textContent = 'Could not convert the recording: ' + err.message
     resetRecorder()
@@ -446,7 +559,7 @@ $('audio-send').addEventListener('click', async () => {
       btn.lastChild.textContent = 'Converting…'
       blob = await toWav16kMono(blob)
     }
-    btn.lastChild.textContent = 'Sending…'
+    btn.lastChild.textContent = 'Adding…'
     await upload(blob, name, 'audio')
     resetAudio()
     afterSend(1, name)
@@ -454,7 +567,7 @@ $('audio-send').addEventListener('click', async () => {
     $('audio-error').textContent = /decode/i.test(err.message) ? 'This audio format could not be read. Try WAV, M4A, MP3 or OGG.' : err.message
   } finally {
     btn.disabled = false
-    btn.lastChild.textContent = 'Send to office'
+    btn.lastChild.textContent = 'Add to visit'
   }
 })
 
@@ -479,7 +592,7 @@ function renderPhotos () {
   $('photo-grid').innerHTML = state.photos.map((p, i) => `<div class="thumb"><img src="${p.url}" alt="Page ${i + 1}"><span class="pg">${n > 1 ? 'p' + (i + 1) : 'Page'}</span><button data-i="${i}" aria-label="Remove page ${i + 1}">${icon('x')}</button></div>`).join('')
   $('photo-ext').textContent = state.photos[0]?.ext || '.jpg'
   updatePhotoNames()
-  $('photo-send-label').textContent = n > 1 ? `Send ${n} pages to office` : 'Send to office'
+  $('photo-send-label').textContent = n > 1 ? `Add ${n} pages to visit` : 'Add to visit'
 }
 function updatePhotoNames () {
   const n = state.photos.length
@@ -637,6 +750,7 @@ let ticks = 0
 async function poll () {
   await refreshStatus()
   await refreshOutbox()
+  await refreshDrafts()
   if (current === 'backup' || ticks % 5 === 0) await refreshBackup()
   ticks++
 }
@@ -646,6 +760,7 @@ window.addEventListener('beforeunload', (e) => { if (state.recording) { e.preven
 ;(async () => {
   await refreshStatus()
   await refreshOutbox()
+  await refreshDrafts()
   await refreshBackup()
   route()
   setInterval(poll, 2000)

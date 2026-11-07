@@ -23,6 +23,11 @@ let officeName = null
 let backup = null
 let backupOpening = null
 let items = readJson(outboxFile) || [] // newest first
+// Visit drafts: files added during a visit stay on the phone until "Finish visit" sends them.
+const draftsDir = path.join(dir, 'drafts')
+const draftsFile = path.join(dir, 'drafts.json')
+let drafts = readJson(draftsFile) || []
+const saveDrafts = () => writeJson(draftsFile, drafts)
 const meta = readJson(metaFile) || { lastSynced: null }
 
 // ---------- peer + backup ----------
@@ -165,6 +170,89 @@ app.post('/api/files', express.raw({ type: () => true, limit: '500mb' }), async 
 })
 
 app.get('/api/outbox', (req, res) => res.json(items.map(publicItem)))
+
+// ----- visit drafts -----
+const KINDS = ['recording', 'audio', 'photo', 'notes']
+const draftPath = (d) => path.join(draftsDir, d.id, d.name)
+const nameTaken = (visitId, name, exceptId) => drafts.some(d => d.visitId === visitId && d.id !== exceptId && d.name.toLowerCase() === name.toLowerCase())
+
+// POST /api/drafts?name=Ayaan-Malik_notes_2026-11-07_1.txt&kind=notes&child=Ayaan%20Malik&visit=<id>  (raw body)
+app.post('/api/drafts', express.raw({ type: () => true, limit: '500mb' }), (req, res) => {
+  try {
+    if (!req.body?.length) return res.status(400).json({ error: 'Empty file' })
+    const visitId = String(req.query.visit || '').slice(0, 40)
+    if (!visitId) return res.status(400).json({ error: 'Start a visit first' })
+    const name = safeName(String(req.query.name || 'file.bin'))
+    if (nameTaken(visitId, name)) return res.status(409).json({ error: `"${name}" is already in this visit. Choose another name.` })
+    const d = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      visitId,
+      name,
+      kind: KINDS.includes(req.query.kind) ? req.query.kind : 'file',
+      child: req.query.child ? String(req.query.child).slice(0, 80) : null,
+      size: req.body.length,
+      createdAt: new Date().toISOString()
+    }
+    fs.mkdirSync(path.join(draftsDir, d.id), { recursive: true })
+    fs.writeFileSync(draftPath(d), req.body)
+    drafts.push(d)
+    saveDrafts()
+    res.json(d)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+app.get('/api/drafts', (req, res) => res.json(drafts.filter(d => !req.query.visit || d.visitId === req.query.visit)))
+
+app.get('/api/drafts/:id/file', (req, res) => {
+  const d = drafts.find(x => x.id === req.params.id)
+  if (!d) return res.status(404).end()
+  res.sendFile(draftPath(d))
+})
+
+app.patch('/api/drafts/:id', (req, res) => {
+  const d = drafts.find(x => x.id === req.params.id)
+  if (!d) return res.status(404).json({ error: 'Not found' })
+  const name = safeName(String(req.body?.name || ''))
+  if (name === 'file') return res.status(400).json({ error: 'Enter a file name' })
+  if (nameTaken(d.visitId, name, d.id)) return res.status(409).json({ error: `"${name}" is already in this visit` })
+  fs.renameSync(draftPath(d), path.join(draftsDir, d.id, name))
+  d.name = name
+  if (req.body?.child) d.child = String(req.body.child).slice(0, 80)
+  saveDrafts()
+  res.json(d)
+})
+
+app.delete('/api/drafts/:id', (req, res) => {
+  const d = drafts.find(x => x.id === req.params.id)
+  if (d) fs.rmSync(path.join(draftsDir, d.id), { recursive: true, force: true })
+  drafts = drafts.filter(x => x.id !== req.params.id)
+  saveDrafts()
+  res.json({ ok: true })
+})
+
+// Finish visit: move every draft into the outbox (sent now, or queued until the office is online).
+app.post('/api/visits/:visit/finish', async (req, res) => {
+  try {
+    const list = drafts.filter(d => d.visitId === req.params.visit)
+    if (list.length && !peer) return res.status(409).json({ error: 'Pair with the office PC first (Connection tab)' })
+    const sent = []
+    for (const d of list) {
+      const folder = path.join(capturesDir, d.id)
+      fs.mkdirSync(folder, { recursive: true })
+      const filePath = path.join(folder, d.name)
+      fs.renameSync(draftPath(d), filePath)
+      fs.rmSync(path.join(draftsDir, d.id), { recursive: true, force: true })
+      drafts = drafts.filter(x => x.id !== d.id)
+      saveDrafts()
+      sent.push(publicItem(await queueFile(filePath, d.kind, { id: d.id, child: d.child, visitId: d.visitId })))
+    }
+    res.json({ sent })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
 
 app.get('/api/backup', async (req, res) => {
   const base = { lastSynced: meta.lastSynced, online: !!backup?.peers }
