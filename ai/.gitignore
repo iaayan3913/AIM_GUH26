@@ -1,0 +1,4 @@
+# children's transcripts/plans stay on the office PC (demo replay cache), never in git
+cache/
+*.ogg
+*.opus

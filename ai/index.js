@@ -1,7 +1,7 @@
 // FOBE /ai module: see shared/CONTRACT.md. 100% local inference via QVAC.
 import { fileURLToPath } from 'node:url'
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { createHash } from 'node:crypto'
 
@@ -10,13 +10,14 @@ process.env.QVAC_CONFIG_PATH ??= here('./qvac.config.js')
 process.env.QVAC_RPC_INIT_TIMEOUT_MS ??= '180000' // first worker start can be slow on Windows
 const q = await import('@qvac/sdk')
 
-const ASR_MODEL = process.env.FOBE_ASR || 'WHISPER_LARGE_V3_TURBO'
+// IndicConformer transcribes Sylheti (as Bengali script) where every Whisper size produced gibberish.
+const ASR_MODEL = process.env.FOBE_ASR || 'PARAKEET_INDIC_CONFORMER_600M_Q8_0'
 const LLM_MODEL = process.env.FOBE_LLM || 'QWEN3_4B_INST_Q4_K_M'
 const CACHE_DIR = here('./cache')
 const noop = () => {}
 
 // ---------- cache (A4) ----------
-export const useCache = () => process.argv.includes('--use-cache') || process.env.FOBE_USE_CACHE === '1'
+const useCache = () => process.argv.includes('--use-cache') || process.env.FOBE_USE_CACHE === '1'
 
 async function cached (key, fn) {
   const file = join(CACHE_DIR, key + '.json')
@@ -29,15 +30,18 @@ async function cached (key, fn) {
 
 // ---------- models (loaded once, kept warm) ----------
 const loaded = {}
-function model (name, modelConfig) {
-  loaded[name] ??= q.loadModel({ modelSrc: q[name], modelConfig }).catch((e) => { delete loaded[name]; throw e })
+function model (name, modelConfig, modelType) {
+  loaded[name] ??= q.loadModel({ modelSrc: q[name], modelConfig, ...(modelType && { modelType }) }).catch((e) => { delete loaded[name]; throw e })
   return loaded[name]
 }
-const asr = () => model(ASR_MODEL, { language: 'auto', translate: false, temperature: 0, contextParams: { use_gpu: true, flash_attn: true } })
+// shortcut: IndicConformer needs one language up front (default bn); English speech comes out in Bengali script and is LLM-translated.
+const asr = () => ASR_MODEL.startsWith('PARAKEET')
+  ? model(ASR_MODEL, { language: process.env.FOBE_ASR_LANG || 'bn' }, 'parakeet-transcription')
+  : model(ASR_MODEL, { language: process.env.FOBE_ASR_LANG || 'auto', translate: false, temperature: 0, contextParams: { use_gpu: true, flash_attn: true } })
 const llm = () => model(LLM_MODEL, { ctx_size: 4096, temp: 0, reasoning_budget: 0, device: process.env.FOBE_DEVICE || 'cpu' }) // CPU measured faster than Iris Xe: 9.5 vs 7.7 tok/s
 
-// Call at server start so the first request doesn't pay ~45 s of model loading.
-export async function warmup () { await Promise.all([asr(), llm()]) }
+// Call at server start so the first request doesn't pay ~60 s of model loading.
+export async function warmup () { await Promise.all([asr(), llm(), vlm()]) } // vlm also translates
 
 // shortcut: separate vision model for OCR (~3 GB extra RAM); could replace Qwen3-4B entirely if A3 quality holds.
 const vlm = () => model('QWEN3_5_4B_MULTIMODAL_Q4_K_M', { ctx_size: 4096, reasoning_budget: 0, projectionModelSrc: q.MMPROJ_QWEN3_5_4B_MULTIMODAL_Q8_0 })
@@ -59,15 +63,25 @@ async function chat (system, user, schema, kvCache, modelId) {
   const final = await run.final
   if (process.env.FOBE_DEBUG) console.error('   llm', Date.now() - t, 'ms', JSON.stringify(await run.stats))
   const text = final.contentText.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
-  return schema ? JSON.parse(text) : text
+  if (!schema) return text
+  try { return JSON.parse(text) } catch { console.warn('[ai] unparseable LLM reply, section left missing'); return {} }
 }
 
 // ---------- transcribe (A1, A2) ----------
 const SCRIPTS = { ur: /[؀-ۿ]/, bn: /[ঀ-৿]/, hi: /[ऀ-ॿ]/ }
-const scriptOf = (t) => Object.keys(SCRIPTS).find((k) => SCRIPTS[k].test(t)) || 'en'
+// any non-Latin letters (e.g. Whisper guessing the wrong script) -> 'other', still sent for translation
+const scriptOf = (t) => Object.keys(SCRIPTS).find((k) => SCRIPTS[k].test(t)) || (/[^\p{Script=Latin}\P{L}]/u.test(t) ? 'other' : 'en')
+
+// Without the glossary even Qwen3.5 turned আন্দা (egg) into "peanuts".
+// shortcut: hand-written Sylheti glossary, replace with community-recorded data / a Sylheti model.
+const TRANSLATE = 'The user text is a parent speaking about their child, written down by speech recognition. ' +
+  'It is probably Sylheti written in Bengali script (or Bengali, Urdu, Hindi) and may contain recognition errors. ' +
+  'Translate it into plain English, sentence by sentence. Do not add anything that is not said. Reply with the translation only. ' +
+  'Sylheti hints: পোয়া/ফুয়া/পয়া = son, আন্ডা/আন্দা = egg, গাও দানা উঠে = gets a rash, মন খারাপ = upset, ভালা পায় = loves, ' +
+  'আওয়াজ = noise, হে/হ = he/she, অইলে/উইলে = when there is.'
 
 export async function transcribe (audioPath, onProgress = noop) {
-  return cached('transcript-' + basename(audioPath), async () => {
+  return cached('transcript-' + basename(audioPath) + '-' + statSync(audioPath).size, async () => {
     onProgress('transcribing', 5)
     const raw = await q.transcribe({ modelId: await asr(), audioChunk: audioPath, metadata: true })
     const segments = []
@@ -77,7 +91,7 @@ export async function transcribe (audioPath, onProgress = noop) {
       // shortcut: script-based detection; romanised Urdu/Bengali passes through untranslated.
       const english = scriptOf(text) === 'en'
         ? text
-        : await chat('Translate the user text (Urdu, Bengali, Hindi or mixed) into plain English. Reply with the translation only.', text)
+        : await chat(TRANSLATE, text, null, null, await vlm()) // Qwen3.5 translated Sylheti correctly where Qwen3 said "banana"
       segments.push({ start: s.startMs / 1000, end: s.endMs / 1000, text, english })
       onProgress('translating to English', 50 + Math.round((50 * (i + 1)) / raw.length))
     }
@@ -112,7 +126,7 @@ const SECTIONS = [
     watch_out: 'things to watch out for: triggers, what happens, what helps'
   } },
   { name: 'attributes', fields: {
-    physical_mobility: 'walking, mobility, running off, safety near roads',
+    physical_mobility: 'how the child walks and moves, and any safety needs when out',
     communication_learning: 'how the child communicates and understands, languages understood',
     emotional_social: 'emotional and social needs, how they calm down, play with others',
     toileting_self_care: 'toilet training, help needed with self care',
@@ -145,28 +159,33 @@ export function quoteMatch (quote, source) {
 
 const MISSING = () => ({ value: null, source: null, status: 'missing' })
 
-function leaf (key, value, quote, source) {
+// trusted = source text that is NOT machine-translated (notes, English speech)
+export function leaf (key, value, quote, source, trusted = source, desc = '') {
   const v = String(value ?? '').trim()
   if (!v || /^(not (stated|mentioned|specified|known)|unknown|n\/?a|none stated|-)$/i.test(v)) return MISSING()
+  // model echoed the field description (3+ words, so short answers like "Male"/"Yes" that the description lists still pass)
+  if (desc && v.split(/\s+/).length >= 3 && quoteMatch(v, desc) === 'exact') return MISSING()
   const match = quoteMatch(quote, source)
   if (match === 'none') return MISSING() // never invent: no supporting quote = not stated
   if (MUST_MENTION[key] && !MUST_MENTION[key].test(quote)) return MISSING()
   if (key in HEALTH) {
-    // medication/allergies/diagnosis: filled only when the quote states it explicitly
-    return { value: v, source: quote, status: match === 'exact' && HEALTH[key].test(quote) ? 'filled' : 'needs_review' }
+    // the quote must talk about this topic at all (an allergy quote can't support "medication: None")
+    if (!HEALTH[key].test(quote)) return MISSING()
+    // filled only when stated in text a human said/wrote untranslated; machine translation -> needs_review
+    return { value: v, source: quote, status: quoteMatch(quote, trusted) === 'exact' ? 'filled' : 'needs_review' }
   }
   const okDate = key !== 'dob' || (/^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(Date.parse(v)))
   return { value: v, source: quote, status: match === 'exact' && okDate ? 'filled' : 'needs_review' }
 }
 
-async function section ({ fields }, source) {
+async function section ({ fields }, source, trusted) {
   const props = Object.fromEntries(Object.keys(fields).map((k) => [k, {
     type: 'object', properties: { value: { type: 'string' }, quote: { type: 'string' } }, required: ['value', 'quote'], additionalProperties: false
   }]))
   const list = Object.entries(fields).map(([k, d]) => `- ${k}: ${d}`).join('\n')
   const out = await chat(withSource(source), `Fields:\n${list}\n\nReply as JSON.`,
     { type: 'object', properties: props, required: Object.keys(fields), additionalProperties: false }, kvKey(source))
-  return Object.fromEntries(Object.keys(fields).map((k) => [k, leaf(k, out[k]?.value, out[k]?.quote, source)]))
+  return Object.fromEntries(Object.keys(fields).map((k) => [k, leaf(k, out[k]?.value, out[k]?.quote, source, trusted, fields[k])]))
 }
 
 async function listSection (source, itemDesc, itemProps) {
@@ -198,21 +217,21 @@ async function listSection (source, itemDesc, itemProps) {
 export async function draftCarePlan ({ childId, transcript, notes, existingPlan } = {}, onProgress = noop) {
   const said = typeof transcript === 'string' ? transcript : transcript?.english
   const source = [said && `RECORDING (translated to English):\n${said}`, notes && `WORKER'S NOTES:\n${notes}`].filter(Boolean).join('\n\n')
-  const key = 'plan-' + childId + '-' + createHash('sha1').update(source + JSON.stringify(existingPlan ?? null)).digest('hex').slice(0, 8)
-  return cached(key, async () => {
-    const draft = await buildPlan(childId, source, onProgress)
-    return existingPlan ? mergePlans(existingPlan, draft) : draft
-  })
+  const key = 'plan-' + createHash('sha1').update(source).digest('hex').slice(0, 12)
+  const translated = transcript?.segments?.some((s) => s.english !== s.text)
+  const trusted = [!translated && said, notes].filter(Boolean).join('\n\n')
+  const draft = { ...await cached(key, () => buildPlan(childId, source, onProgress, trusted)), child_id: childId }
+  return existingPlan ? mergePlans(existingPlan, draft) : draft
 }
 
-async function buildPlan (childId, source, onProgress) {
+async function buildPlan (childId, source, onProgress, trusted) {
   const today = new Date().toISOString().slice(0, 10)
   if (!source.trim()) throw new Error('draftCarePlan: need a transcript or notes')
   const steps = SECTIONS.length + 2
   const parts = {}
   for (const [i, s] of SECTIONS.entries()) {
     onProgress('drafting ' + s.name, Math.round((100 * i) / steps))
-    parts[s.name] = await section(s, source)
+    parts[s.name] = await section(s, source, trusted)
   }
   onProgress('drafting words_phrases', Math.round((100 * SECTIONS.length) / steps))
   const words = await listSection(source, 'words or sounds the CHILD himself/herself says (or signs the child makes) that have a special meaning, and what each means. Not words said by adults', ['word_or_sign', 'meaning'])
@@ -261,11 +280,11 @@ export function lanyardText (plan, optIns = []) {
   const first = (s) => String(s).split(/[.;(]/)[0].trim()
   const parts = [
     [val(plan.first_name), optIns.includes('surname') && val(plan.surname)].filter(Boolean).join(' '),
-    optIns.includes('dob') && val(plan.dob) && 'DOB ' + val(plan.dob),
-    optIns.includes('diagnosis') && val(plan.diagnosis) && first(val(plan.diagnosis)),
-    optIns.includes('ethnicity') && val(plan.ethnicity),
     val(plan.allergies) && !/^none/i.test(val(plan.allergies)) && 'ALLERGY: ' + first(val(plan.allergies)),
     val(plan.emergency_contact) && 'Call ' + val(plan.emergency_contact),
+    optIns.includes('diagnosis') && val(plan.diagnosis) && first(val(plan.diagnosis)),
+    optIns.includes('dob') && val(plan.dob) && 'DOB ' + val(plan.dob),
+    optIns.includes('ethnicity') && val(plan.ethnicity),
     val(plan.attributes?.communication_learning) && first(val(plan.attributes.communication_learning))
   ].filter(Boolean)
   // drop lowest-priority parts until it fits, then hard-trim as a last resort
@@ -275,7 +294,7 @@ export function lanyardText (plan, optIns = []) {
 
 // ---------- ocrNotes (A6) ----------
 export async function ocrNotes (imagePath, onProgress = noop) {
-  return cached('ocr-' + basename(imagePath), async () => {
+  return cached('ocr-' + basename(imagePath) + '-' + statSync(imagePath).size, async () => {
     onProgress('loading vision model', 10)
     const modelId = await vlm()
     onProgress('reading notes', 40)

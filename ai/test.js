@@ -49,10 +49,18 @@ if (cmd === 'transcribe') {
   assert.equal(ai.quoteMatch('March 14, 2017', src), 'close')
   assert.equal(ai.quoteMatch('Mum Aisha 07700 900106', src), 'none')
   assert.equal(ai.quoteMatch('', src), 'none')
+  // health facts from machine-translated speech always need a human check; written notes don't
+  assert.equal(ai.leaf('allergies', 'Eggs', "allergic to eggs", src, '').status, 'needs_review')
+  assert.equal(ai.leaf('allergies', 'Eggs', "allergic to eggs", src).status, 'filled')
+  assert.equal(ai.leaf('medication', 'Calpol', 'takes Calpol daily', src).status, 'missing')
+  assert.equal(ai.leaf('medication', 'None', "allergic to eggs", src).status, 'missing') // quote isn't about medicine
+  assert.equal(ai.leaf('gender', 'Male', 'allergic to eggs', src, src, '"Male" or "Female", only if stated').status, 'filled')
+  assert.equal(ai.leaf('physical_mobility', 'walking, mobility, running off', "allergic to eggs", src, src, 'walking, mobility, running off').status, 'missing')
   const plan = JSON.parse(await readFile(new URL('../shared/careplan.example.json', import.meta.url), 'utf8'))
   const lt = ai.lanyardText(plan)
   assert.ok(lt.length <= 130 && !/Qureshi|Autism|Pakistani|2015/.test(lt), lt)
   assert.ok(/Qureshi/.test(ai.lanyardText(plan, ['surname'])))
+  assert.ok(ai.lanyardText(plan, ['surname', 'dob', 'diagnosis', 'ethnicity']).includes('07700 900101'), 'contact must survive trimming')
   const merged = ai.mergePlans(plan, { ...plan, medication: { value: 'None', source: 'x', status: 'filled' }, dob: { value: null, source: null, status: 'missing' } })
   assert.equal(merged.medication.value, 'None')
   assert.equal(merged.dob.value, '2015-06-02')
