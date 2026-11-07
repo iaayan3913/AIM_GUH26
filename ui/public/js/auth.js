@@ -122,11 +122,11 @@ auth.signOff = async (childId, done) => {
 export async function renderLogin (main) {
   await refreshAuth()
   const supported = browserSupportsWebAuthn()
-  main.innerHTML = `
+  main.innerHTML = `<div class="login-wrap">
     <h1>${status.user ? 'Your YubiKey' : status.registered ? 'Sign in' : 'Set up your YubiKey'}</h1>
     ${!supported ? '<div class="notice red">This browser cannot use security keys. Please use Chrome or Edge.</div>' : ''}
     ${location.hostname !== 'localhost' ? '<div class="notice red">Open this app at <strong>http://localhost:3000</strong> for the YubiKey to work.</div>' : ''}
-    <section class="panel" style="max-width:640px">
+    <section class="panel">
       ${status.user
         ? `<p>You are signed in as <strong>${esc(status.user.name)}</strong>. Only you can edit and sign off plans on this PC.</p>
            <h2>Add a spare key</h2>
@@ -140,7 +140,7 @@ export async function renderLogin (main) {
              ${KEY_HINT}
              <div class="actions"><button class="btn primary" id="reg">Register my YubiKey</button></div>`}
       <p class="err notice red" hidden></p>
-    </section>`
+    </section></div>`
 
   const err = (e) => { const p = main.querySelector('.err'); p.hidden = false; p.textContent = tapError(e) }
   main.querySelector('#login')?.addEventListener('click', async (e) => {

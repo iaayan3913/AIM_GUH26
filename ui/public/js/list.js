@@ -11,10 +11,7 @@ export async function renderList (main) {
         <h1>Children</h1>
         <p class="muted">${children.length} care plan${children.length === 1 ? '' : 's'} on this PC.</p>
       </div>
-      <div class="actions" style="margin:0">
-        <input id="q" class="search" type="search" placeholder="Search by name" aria-label="Search by name">
-        <a class="btn primary" href="#/visit">+ New visit</a>
-      </div>
+      <input id="q" class="search" type="search" placeholder="Search by name" aria-label="Search by name">
     </div>
     ${urgent.length ? `<div class="notice amber"><strong>${urgent.length} annual review${urgent.length === 1 ? '' : 's'} due soon or overdue:</strong> ${urgent.map((c) => esc(c.first_name)).join(', ')}</div>` : ''}
     <table class="children">
@@ -48,6 +45,8 @@ export async function renderList (main) {
 
 function planBadge (c) {
   const n = c.flags.missing + c.flags.needs_review
-  const signed = c.approved_at ? '<span class="badge ok">Signed off</span>' : '<span class="badge amber">Draft</span>'
+  const signed = c.approved_at
+    ? '<span class="signed"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg>Signed off</span>'
+    : '<span class="badge amber">Draft</span>'
   return n ? `${signed} <span class="badge amber">${n} to check</span>` : signed
 }

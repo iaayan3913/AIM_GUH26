@@ -63,10 +63,7 @@ export async function renderInbox (main) {
 
   const go = (picks) => {
     const q = new URLSearchParams()
-    for (const [kind, name] of picks) {
-      if (q.has(kind)) return toast(`Pick only one ${LABEL[kind].toLowerCase()}`, 'error')
-      q.set(kind, name)
-    }
+    for (const [kind, name] of picks) q.append(kind, name) // several recordings / photos / notes are fine
     location.hash = `#/visit?${q}`
   }
   main.querySelector('#useSel').addEventListener('click', () => {

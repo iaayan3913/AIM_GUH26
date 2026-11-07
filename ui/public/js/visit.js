@@ -3,16 +3,25 @@ import { api, esc, fullName, toast, auth, routeParams, ageFromDobClient } from '
 import { renderPlan, collectPlan, flagSummary, wireJumps } from './planform.js'
 
 export async function renderVisit (main, childId = '') {
-  // Files picked in the work-phone inbox arrive as #/visit?audio=..&photo=..&text=..
+  // Files picked in the work-phone inbox arrive as #/visit?audio=..&photo=..&text=.. (each may repeat)
   const q = routeParams()
-  const prefill = { audioPath: q.get('audio'), photoPath: q.get('photo'), textName: q.get('text') }
-  prefill.audioName = prefill.audioPath
-  prefill.photoName = prefill.photoPath
-  const fromPhone = [prefill.audioPath, prefill.photoPath, prefill.textName].filter(Boolean)
+  const KINDS = {
+    audio: { label: 'Recording', icon: 'mic', field: 'audio', inboxField: 'audioPath', accept: 'audio/*,.wav,.mp3,.m4a,.ogg,.webm,.opus,.aac' },
+    photo: { label: 'Photo of notes', icon: 'image', field: 'photo', inboxField: 'photoPath', accept: 'image/*' },
+    notes: { label: 'Notes file', icon: 'note', field: 'notesFile', inboxField: 'textPath', accept: '.txt,text/plain' }
+  }
+  const items = [
+    ...q.getAll('audio').map((n) => ({ kind: 'audio', name: n, inbox: true })),
+    ...q.getAll('photo').map((n) => ({ kind: 'photo', name: n, inbox: true })),
+    ...q.getAll('text').map((n) => ({ kind: 'notes', name: n, inbox: true }))
+  ]
   const children = await api('/api/children')
+  const ic = (id) => `<svg class="ic" aria-hidden="true"><use href="#i-${id}"/></svg>`
+  const size = (b) => (b > 1e6 ? `${(b / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1e3))} KB`)
+
   main.innerHTML = `
     <h1>New visit</h1>
-    <p class="muted">Add the recording, a photo of your notes, typed notes, or any mix. Everything is processed on this PC. Nothing is saved until you review it.</p>
+    <p class="muted">Add as many recordings, photos of your notes and notes files as you need, plus anything you want to type. Everything is processed on this PC. Nothing is saved until you review it.</p>
     <form id="visit" class="panel">
       <div class="form-row">
         <label for="child">Which child?</label>
@@ -21,16 +30,19 @@ export async function renderVisit (main, childId = '') {
           ${children.map((c) => `<option value="${esc(c.child_id)}" ${c.child_id === childId ? 'selected' : ''}>${esc(fullName(c))} (${esc(c.child_id)})</option>`).join('')}
         </select>
       </div>
-      <div class="form-row">
-        <label for="audio">Recording of the visit</label>
-        <span class="hint">Audio file, e.g. .wav, .mp3 or .m4a. English, Urdu, Bengali and Hindi are understood.</span>
-        ${prefill.audioPath ? `<p class="notice">Using <strong>${esc(prefill.audioName)}</strong> from the work phone.</p>` : '<input id="audio" name="audio" type="file" accept="audio/*,.wav,.mp3,.m4a,.ogg,.webm">'}
+
+      <div class="label">Add to this visit</div>
+      <div class="vtiles">
+        <button type="button" class="vtile t-pink" data-pick="audio"><span class="vtile-ic">${ic('mic')}</span><span><strong>Add recordings</strong><small>WAV, MP3, M4A, OGG · English, Urdu, Bengali, Hindi</small></span></button>
+        <button type="button" class="vtile t-green" data-pick="photo"><span class="vtile-ic">${ic('image')}</span><span><strong>Add photos of notes</strong><small>JPG or PNG · one per page</small></span></button>
+        <button type="button" class="vtile t-blue" data-pick="notes"><span class="vtile-ic">${ic('note')}</span><span><strong>Add notes files</strong><small>.txt, e.g. typed on the work phone</small></span></button>
       </div>
-      <div class="form-row">
-        <label for="photo">Photo of your handwritten notes</label>
-        ${prefill.photoPath ? `<p class="notice">Using <strong>${esc(prefill.photoName)}</strong> from the work phone.</p>` : '<input id="photo" name="photo" type="file" accept="image/*">'}
-      </div>
-      <div class="form-row">
+      ${Object.entries(KINDS).map(([k, v]) => `<input type="file" data-input="${k}" accept="${v.accept}" multiple hidden>`).join('')}
+
+      <div class="vlist-head"><span class="label" style="margin:0">In this visit</span><span id="vcount" class="vcount"></span></div>
+      <ul id="vfiles" class="vlist"></ul>
+
+      <div class="form-row" style="margin-top:20px">
         <label for="notes">Typed notes</label>
         <textarea id="notes" name="notes" class="input" rows="6" placeholder="Anything you wrote down or want to add"></textarea>
       </div>
@@ -50,22 +62,51 @@ export async function renderVisit (main, childId = '') {
   `
 
   const form = main.querySelector('#visit')
-  if (prefill.textName) {
-    api(`/api/inbox/text/${encodeURIComponent(prefill.textName)}`)
-      .then((d) => { main.querySelector('#notes').value = d.text })
-      .catch((e) => toast(e.message, 'error'))
+  const list = main.querySelector('#vfiles')
+  const draw = () => {
+    main.querySelector('#vcount').textContent = items.length ? `${items.length} file${items.length === 1 ? '' : 's'}` : ''
+    list.innerHTML = items.length
+      ? items.map((it, i) => `<li>
+          <span class="kind-ic kind-${it.kind === 'notes' ? 'text' : it.kind}">${ic(KINDS[it.kind].icon)}</span>
+          <span class="vname"><strong>${esc(it.name)}</strong><small>${KINDS[it.kind].label}${it.file ? ` · ${size(it.file.size)}` : ''}${it.inbox ? ' · from the work phone' : ''}</small></span>
+          <button type="button" class="btn small" data-remove="${i}" aria-label="Remove ${esc(it.name)}">${ic('x')}Remove</button>
+        </li>`).join('')
+      : '<li class="vempty">Nothing added yet. Use the buttons above: you can add several of each, and keep adding until you create the draft.</li>'
   }
+  draw()
+
+  main.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('click', () => main.querySelector(`[data-input="${b.dataset.pick}"]`).click()))
+  main.querySelectorAll('[data-input]').forEach((input) => input.addEventListener('change', () => {
+    for (const file of input.files) {
+      if (items.some((it) => it.file && it.file.name === file.name && it.file.size === file.size)) continue
+      items.push({ kind: input.dataset.input, name: file.name, file })
+    }
+    input.value = ''
+    draw()
+  }))
+  list.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-remove]')
+    if (!b) return
+    items.splice(Number(b.dataset.remove), 1)
+    draw()
+  })
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault()
     if (!(await auth.ensure('start a new visit'))) return
-    const fd = new FormData(form)
-    if (prefill.audioPath) fd.set('audioPath', prefill.audioPath)
-    if (prefill.photoPath) fd.set('photoPath', prefill.photoPath)
-    for (const k of ['audio', 'photo']) { const f = fd.get(k); if (f && !f.size) fd.delete(k) }
-    if (!fd.get('audio') && !fd.get('photo') && !fd.get('audioPath') && !fd.get('photoPath') && !String(fd.get('notes') || '').trim()) {
-      toast('Add a recording, a photo or some typed notes first', 'error')
+    const notes = String(main.querySelector('#notes').value || '').trim()
+    if (!items.length && !notes) {
+      toast('Add a recording, a photo or some notes first', 'error')
       return
     }
+    const fd = new FormData()
+    fd.set('childId', main.querySelector('#child').value)
+    fd.set('notes', notes)
+    for (const it of items) {
+      if (it.inbox) fd.append(KINDS[it.kind].inboxField, it.name)
+      else fd.append(KINDS[it.kind].field, it.file, it.file.name)
+    }
+    const fromPhone = items.filter((it) => it.inbox).map((it) => it.name)
     form.querySelector('[type=submit]').disabled = true
     try {
       const { jobId, childId: cid } = await api('/api/visits', { method: 'POST', body: fd })

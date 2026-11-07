@@ -68,12 +68,16 @@ app.use(session({
 const noCache = { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') } // always revalidate (cheap on localhost)
 app.use(express.static(path.join(HERE, 'public'), noCache))
 // FOBE logo from ui/private/ (gitignored, never pushed). The page falls back to a text logo if absent.
+// Also accepts "FOBE logo.png" in the repo root (gitignored too). Type is sniffed: that file is really a WebP.
 app.get('/brand/logo', (req, res) => {
   const dir = path.join(HERE, 'private')
-  const file = ['fobe-logo.png', 'fobe-logo.jpeg', 'fobe-logo.jpg'].map((f) => path.join(dir, f)).find((f) => fs.existsSync(f))
+  const file = [...['fobe-logo.png', 'fobe-logo.webp', 'fobe-logo.jpeg', 'fobe-logo.jpg'].map((f) => path.join(dir, f)), path.join(HERE, '..', 'FOBE logo.png')]
+    .find((f) => fs.existsSync(f))
   if (!file) return res.status(404).end()
+  const head = fs.readFileSync(file).subarray(0, 12)
+  const type = head.toString('latin1', 8, 12) === 'WEBP' ? 'image/webp' : head[0] === 0xff ? 'image/jpeg' : 'image/png'
   res.setHeader('Cache-Control', 'no-cache')
-  res.sendFile(file)
+  res.type(type).sendFile(file)
 })
 app.use('/vendor/simplewebauthn', express.static(path.join(HERE, 'node_modules/@simplewebauthn/browser/esm'), noCache))
 
@@ -196,11 +200,15 @@ const inboxPath = (name) => inbox.resolve(name)
 
 const jobs = new Map()
 
-app.post('/api/visits', gate, upload.fields([{ name: 'audio', maxCount: 1 }, { name: 'photo', maxCount: 1 }]), wrap(async (req, res) => {
-  const audio = req.files?.audio?.[0]?.path || inboxPath(req.body.audioPath)
-  const photo = req.files?.photo?.[0]?.path || inboxPath(req.body.photoPath)
-  const typed = (req.body.notes || '').trim()
-  if (!audio && !photo && !typed) return res.status(400).json({ error: 'Add a recording, a photo of your notes, or typed notes' })
+// Several recordings / photos / notes files per visit (uploads and/or files from the work phone inbox).
+const listOf = (v) => (v == null ? [] : Array.isArray(v) ? v : [v])
+app.post('/api/visits', gate, upload.fields([{ name: 'audio', maxCount: 12 }, { name: 'photo', maxCount: 12 }, { name: 'notesFile', maxCount: 12 }]), wrap(async (req, res) => {
+  const audios = [...(req.files?.audio || []).map((f) => f.path), ...listOf(req.body.audioPath).map(inboxPath)].filter(Boolean)
+  const photos = [...(req.files?.photo || []).map((f) => f.path), ...listOf(req.body.photoPath).map(inboxPath)].filter(Boolean)
+  const noteFiles = [...(req.files?.notesFile || []).map((f) => f.path), ...listOf(req.body.textPath).map(inboxPath)].filter(Boolean)
+  const typed = [(req.body.notes || '').trim(), ...noteFiles.map((p) => { try { return fs.readFileSync(p, 'utf-8').trim() } catch { return '' } })]
+    .filter(Boolean).join('\n\n')
+  if (!audios.length && !photos.length && !typed) return res.status(400).json({ error: 'Add a recording, a photo of your notes, or typed notes' })
 
   let childId = req.body.childId
   const isNew = !childId || childId === 'new'
@@ -214,7 +222,7 @@ app.post('/api/visits', gate, upload.fields([{ name: 'audio', maxCount: 1 }, { n
   aiQueue = aiQueue.then(async () => {
     busy = true
     try {
-      await runVisit(job, { audio, photo, typed })
+      await runVisit(job, { audios, photos, typed })
     } catch (e) {
       console.error('[visit]', e)
       Object.assign(job, { status: 'error', error: e.message || String(e) })
@@ -225,10 +233,32 @@ app.post('/api/visits', gate, upload.fields([{ name: 'audio', maxCount: 1 }, { n
 let aiQueue = Promise.resolve()
 let busy = false
 
-async function runVisit (job, { audio, photo, typed }) {
+// Several recordings -> one transcript (segment times continue across files). One file = unchanged (AI cache still hits).
+function mergeTranscripts (list) {
+  const ts = list.filter(Boolean)
+  if (ts.length <= 1) return ts[0] || null
+  const segments = []
+  let offset = 0
+  for (const t of ts) {
+    let end = offset
+    for (const s of t.segments || []) {
+      segments.push({ ...s, start: (s.start || 0) + offset, end: (s.end || 0) + offset })
+      end = Math.max(end, (s.end || 0) + offset)
+    }
+    offset = end + 1
+  }
+  return {
+    language: [...new Set(ts.map((t) => t.language).filter(Boolean))].join(' + '),
+    original: ts.map((t) => (t.original || '').trim()).filter(Boolean).join('\n\n'),
+    english: ts.map((t) => (t.english || '').trim()).filter(Boolean).join('\n\n'),
+    segments
+  }
+}
+
+async function runVisit (job, { audios, photos, typed }) {
   const t0 = Date.now()
   // Each stage gets a slice of the overall progress bar.
-  const stages = [audio && ['transcribe', 50], photo && ['ocr', 15], ['draft', 35]].filter(Boolean)
+  const stages = [audios.length && ['transcribe', 50], photos.length && ['ocr', 15], ['draft', 35]].filter(Boolean)
   const total = stages.reduce((s, [, w]) => s + w, 0)
   let done = 0
   const progressFor = (weight, label) => (stage, pct) => {
@@ -237,32 +267,37 @@ async function runVisit (job, { audio, photo, typed }) {
     job.percent = Math.min(99, Math.round(((done + (weight * (pct || 0)) / 100) / total) * 100))
   }
   const finish = (w) => { done += w }
+  const of = (i, n) => (n > 1 ? ` (${i + 1} of ${n})` : '')
 
-  let transcript = null
-  if (audio) {
-    const w = stages.find((s) => s[0] === 'transcribe')[1]
-    transcript = await ai.transcribe(audio, progressFor(w, 'Transcribing and translating the recording'))
-    finish(w)
-  }
-  let ocrText = ''
   const warnings = []
-  if (photo) {
-    const w = stages.find((s) => s[0] === 'ocr')[1]
-    try {
-      ocrText = (await ai.ocrNotes(photo, progressFor(w, 'Reading the photo of your notes')))?.text || ''
-    } catch (e) {
-      // Not fatal: the recording / typed notes still make a draft.
-      console.warn('[ocr]', e.message)
-      warnings.push(`The photo of the notes could not be read (${e.message}). Please type anything important from it.`)
+  const transcripts = []
+  if (audios.length) {
+    const w = stages.find((s) => s[0] === 'transcribe')[1] / audios.length
+    for (const [i, audio] of audios.entries()) {
+      const t = await ai.transcribe(audio, progressFor(w, `Transcribing and translating the recording${of(i, audios.length)}`))
+      if (!(t?.english || t?.original || '').trim()) warnings.push(`No speech about the child could be understood in ${path.basename(audio)}, so nothing was taken from it.`)
+      transcripts.push(t)
+      finish(w)
     }
-    finish(w)
   }
-  if (audio && !(transcript?.english || transcript?.original || '').trim()) {
-    warnings.push('No speech about the child could be understood in the recording, so nothing was taken from it.')
+  const transcript = mergeTranscripts(transcripts)
+  const ocrTexts = []
+  if (photos.length) {
+    const w = stages.find((s) => s[0] === 'ocr')[1] / photos.length
+    for (const [i, photo] of photos.entries()) {
+      try {
+        const text = (await ai.ocrNotes(photo, progressFor(w, `Reading the photo of your notes${of(i, photos.length)}`)))?.text || ''
+        if (text.trim()) ocrTexts.push(text.trim())
+        else warnings.push(`No text could be read from ${path.basename(photo)}. Please type anything important from it.`)
+      } catch (e) {
+        // Not fatal: the recording / typed notes still make a draft.
+        console.warn('[ocr]', e.message)
+        warnings.push(`${path.basename(photo)} could not be read (${e.message}). Please type anything important from it.`)
+      }
+      finish(w)
+    }
   }
-  if (photo && !ocrText.trim() && !warnings.some((w) => w.startsWith('The photo'))) {
-    warnings.push('No text could be read from the photo of the notes. Please type anything important from it.')
-  }
+  const ocrText = ocrTexts.join('\n\n')
   const notes = [typed, ocrText].filter(Boolean).join('\n\n')
   const existingPlan = job.isNew ? undefined : (await db.getPlan(job.childId)) || undefined
   const w = stages.find((s) => s[0] === 'draft')[1]

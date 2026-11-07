@@ -56,12 +56,7 @@ window.addEventListener('hashchange', route)
 window.addEventListener('unhandledrejection', (e) => toast(e.reason?.message || 'Something went wrong', 'error'))
 refreshAuth().catch(() => {}).finally(route)
 
-// Make it obvious when the fake (mock) AI is in use, so nobody mistakes it for real drafts.
-api('/api/status', { quiet: true }).then((s) => {
-  if (s.ai !== 'mock') return
-  document.querySelector('.topbar nav').insertAdjacentHTML('afterend',
-    '<span class="badge amber" title="ui/mock.js: does not listen to recordings">Test AI (mock)</span>')
-}).catch(() => {})
+// (The mock-AI warning is shown on the review page, not in the header.)
 
 // Badge on "From work phone": number of new files not yet used for a plan.
 async function inboxBadge () {
