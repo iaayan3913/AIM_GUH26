@@ -47,6 +47,12 @@ try {
 const { ai, name: aiName } = await loadAi()
 console.log(`[db] ${DB_DIR} (writable: ${db.writable})`)
 console.log(`[ai] using ${aiName}`)
+// Load the QVAC models in the background now, so the first draft in the demo isn't slow.
+if (aiName !== 'mock' && typeof ai.warmup === 'function') {
+  const t = Date.now()
+  ai.warmup().then(() => console.log(`[ai] models ready (${Math.round((Date.now() - t) / 1000)} s)`))
+    .catch((e) => console.warn('[ai] warmup failed (models will load on first use):', e.message))
+}
 
 const app = express()
 app.disable('x-powered-by')
