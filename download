@@ -1,0 +1,16 @@
+{
+  "name": "fobe-sync",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "seed": "node seed.js",
+    "test": "node test-db.js"
+  },
+  "dependencies": {
+    "b4a": "^1.9.0",
+    "corestore": "^7.16.1",
+    "hyperbee": "^2.27.3",
+    "hyperswarm": "^4.17.2"
+  }
+}
