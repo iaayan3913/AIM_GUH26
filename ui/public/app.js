@@ -4,10 +4,15 @@ import { renderList } from './js/list.js'
 import { renderPlanPage } from './js/plan.js'
 import { renderPrint } from './js/print.js'
 import { renderVisit, renderReview } from './js/visit.js'
+import { renderLogin, refreshAuth } from './js/auth.js'
+
+// WebAuthn rpID is 'localhost', so 127.0.0.1 would break the YubiKey.
+if (location.hostname === '127.0.0.1') location.replace(location.href.replace('127.0.0.1', 'localhost'))
 
 const main = document.getElementById('main')
 
 const routes = [
+  [/^login$/, renderLogin],
   [/^$/, renderList],
   [/^child\/([^/]+)$/, renderPlanPage],
   [/^child\/([^/]+)\/print$/, renderPrint],
@@ -41,4 +46,4 @@ async function route () {
 
 window.addEventListener('hashchange', route)
 window.addEventListener('unhandledrejection', (e) => toast(e.reason?.message || 'Something went wrong', 'error'))
-route()
+refreshAuth().catch(() => {}).finally(route)

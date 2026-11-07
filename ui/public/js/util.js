@@ -12,6 +12,11 @@ export async function api (path, opts = {}) {
   const text = await res.text()
   let data = null
   try { data = text ? JSON.parse(text) : null } catch { data = { error: text } }
+  // Session ended (e.g. server restarted): ask for the YubiKey, then retry once.
+  if (res.status === 401 && !opts._retried && !path.startsWith('/api/auth/')) {
+    auth.user = null
+    if (await auth.ensure('continue')) return api(path, { ...opts, _retried: true })
+  }
   if (!res.ok) {
     const err = new Error(data?.error || `Request failed (${res.status})`)
     err.status = res.status

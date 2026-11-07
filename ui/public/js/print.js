@@ -1,6 +1,10 @@
 // Print view: clean A4 for the secure folder.
 import { api, esc, fmtDate, fmtDateTime, fullName, initials } from './util.js'
-import { SECTIONS, LIST_COLS, getPath } from './planform.js'
+import { SECTIONS, getPath, isList, valueHtml } from './planform.js'
+
+const NR = '<span class="nr">Not recorded</span>'
+// Medication stays inside the header table; the other lists get their own block.
+const ownBlock = (p, t) => isList(t) && p !== 'medication'
 
 export async function renderPrint (main, childId) {
   const { plan, meta } = await api(`/api/plans/${encodeURIComponent(childId)}`)
@@ -9,21 +13,17 @@ export async function renderPrint (main, childId) {
   const footer = `FOBE – confidential – do not remove from folder – version ${version}`
 
   const cell = (path, type) => {
-    if (path === '@age') return meta.age != null ? String(meta.age) : '<span class="nr">Not recorded</span>'
-    const f = getPath(plan, path)
-    const v = f?.value
-    if (v == null || v === '' || (Array.isArray(v) && !v.length)) return '<span class="nr">Not recorded</span>'
-    if (type === 'date') return esc(fmtDate(v))
-    return esc(v)
+    if (path === '@age') return meta.age != null ? String(meta.age) : NR
+    return valueHtml(type, getPath(plan, path)?.value) ?? NR
   }
 
   const sectionHtml = (s) => {
     // Name is in the page title, so skip it in the table.
-    const simple = s.fields.filter(([p, , t]) => t !== 'words' && t !== 'behaviours' && p !== 'first_name' && p !== 'surname')
-    const lists = s.fields.filter(([, , t]) => t === 'words' || t === 'behaviours')
+    const simple = s.fields.filter(([p, , t]) => !ownBlock(p, t) && p !== 'first_name' && p !== 'surname')
+    const lists = s.fields.filter(([p, , t]) => ownBlock(p, t))
     return `<h2>${esc(s.title)}</h2>
       ${simple.length ? `<table>${simple.map(([p, label, t]) => `<tr><th>${esc(label)}</th><td>${cell(p, t)}</td></tr>`).join('')}</table>` : ''}
-      ${lists.map(([p, label, t]) => listTable(plan, p, label, t, s.fields.length > 1)).join('')}`
+      ${lists.map(([p, label, t]) => `${s.fields.length > 1 ? `<h3 style="font-size:11pt;margin:8pt 0 3pt">${esc(label)}</h3>` : ''}${cell(p, t)}`).join('')}`
   }
 
   main.innerHTML = `
@@ -50,15 +50,4 @@ export async function renderPrint (main, childId) {
     <div class="print-foot">${esc(footer)}</div>
   `
   main.querySelector('#print').addEventListener('click', () => window.print())
-}
-
-function listTable (plan, path, label, type, showLabel) {
-  const f = getPath(plan, path)
-  const rows = Array.isArray(f?.value) ? f.value : []
-  const cols = LIST_COLS[type]
-  return `${showLabel ? `<h3 style="font-size:11pt;margin:8pt 0 3pt">${esc(label)}</h3>` : ''}
-    ${rows.length
-      ? `<table class="grid"><tr>${cols.map(([, h]) => `<th>${esc(h)}</th>`).join('')}</tr>
-          ${rows.map((r) => `<tr>${cols.map(([k]) => `<td>${esc(r?.[k])}</td>`).join('')}</tr>`).join('')}</table>`
-      : '<p class="nr">Not recorded</p>'}`
 }

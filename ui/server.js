@@ -8,11 +8,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { openDb, ageFromDob, reviewDue } from '../sync/db.js'
 import { loadAi } from './ai-loader.js'
+import { mountAuth } from './auth.js'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const PORT = Number(process.env.PORT) || 3000
 const DB_DIR = process.env.FOBE_DB_DIR || path.join(HERE, '../sync/data/office-pc')
-const DATA = path.join(HERE, 'data') // gitignored
+const DATA = process.env.FOBE_DATA_DIR || path.join(HERE, 'data') // gitignored: uploads, YubiKey credentials
 const UPLOADS = path.join(DATA, 'uploads')
 fs.mkdirSync(UPLOADS, { recursive: true })
 
@@ -36,8 +37,9 @@ app.use(session({
 }))
 
 // Static files + locally bundled libraries (no CDNs).
-app.use(express.static(path.join(HERE, 'public')))
-app.use('/vendor/simplewebauthn', express.static(path.join(HERE, 'node_modules/@simplewebauthn/browser/esm')))
+const noCache = { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') } // always revalidate (cheap on localhost)
+app.use(express.static(path.join(HERE, 'public'), noCache))
+app.use('/vendor/simplewebauthn', express.static(path.join(HERE, 'node_modules/@simplewebauthn/browser/esm'), noCache))
 
 // ---------- helpers ----------
 const today = () => new Date().toISOString().slice(0, 10)
@@ -84,9 +86,8 @@ function withMeta (plan) {
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next)
 
-// Auth gate (YubiKey login is added at C4).
-let requireAuth = (req, res, next) => next()
-const gate = (req, res, next) => requireAuth(req, res, next)
+// YubiKey login: editing, saving, new visits and sign-off need a signed-in worker.
+const gate = mountAuth(app, { dataDir: DATA, port: PORT, db, wrap })
 
 // ---------- care plans ----------
 app.get('/api/status', (req, res) => {
@@ -204,8 +205,8 @@ app.get('/api/jobs/:id', (req, res) => {
 // ---------- errors + start ----------
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }))
 app.use((err, req, res, next) => {
-  console.error(err)
-  res.status(500).json({ error: err.message || 'Server error' })
+  if (!err.status || err.status >= 500) console.error(err)
+  res.status(err.status || 500).json({ error: err.message || 'Server error' })
 })
 
 const server = app.listen(PORT, '127.0.0.1', () => {

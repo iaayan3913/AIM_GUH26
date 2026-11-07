@@ -15,7 +15,7 @@ export const SECTIONS = [
       ['gender', 'Gender', 'text'],
       ['ethnicity', 'Ethnicity', 'text'],
       ['diagnosis', 'Diagnosis', 'long'],
-      ['medication', 'Medication', 'long'],
+      ['medication', 'Medication', 'meds'],
       ['allergies', 'Allergies', 'long'],
       ['emergency_contact', 'Emergency contact', 'text']
     ]
@@ -48,7 +48,8 @@ export const SECTIONS = [
 
 export const LIST_COLS = {
   words: [['word_or_sign', 'Word, sign or phrase'], ['meaning', 'What it means']],
-  behaviours: [['behaviour', 'Behaviour'], ['triggers', 'Triggers'], ['control_measures', 'Control measures']]
+  behaviours: [['behaviour', 'Behaviour'], ['triggers', 'Triggers'], ['control_measures', 'Control measures']],
+  meds: [['name', 'Medicine'], ['dose', 'Dose'], ['time', 'When / notes']]
 }
 
 const EMPTY = () => ({ value: null, source: null, status: 'missing' })
@@ -84,16 +85,32 @@ function sourceTip (f, label) {
   return `<span class="src"><button type="button" class="src-btn" aria-label="Where this came from: ${esc(label)}">Source</button><span class="src-tip" role="tooltip">${esc(f.source)}</span></span>`
 }
 
-function displayValue (type, v) {
+export const isList = (type) => type in LIST_COLS
+const ADD_LABEL = { words: 'word or sign', behaviours: 'behaviour', meds: 'medicine' }
+
+// The AI may return a list as strings, or a list field as plain text. Cope with all of them.
+function toRows (type, v) {
+  const first = LIST_COLS[type][0][0]
+  return v.map((r) => (r && typeof r === 'object' ? r : { [first]: String(r ?? '') }))
+}
+const flatText = (v) => Array.isArray(v)
+  ? v.map((x) => (x && typeof x === 'object' ? Object.values(x).filter(Boolean).join(' – ') : x)).join('\n')
+  : (v && typeof v === 'object' ? Object.values(v).filter(Boolean).join(' – ') : String(v ?? ''))
+
+// Same shape the edit table produces, so "no change" is detected reliably.
+const normRows = (type, v) => toRows(type, v)
+  .map((r) => Object.fromEntries(LIST_COLS[type].map(([k]) => [k, String(r[k] ?? '').trim()])))
+  .filter((r) => Object.values(r).some(Boolean))
+
+export function valueHtml (type, v) {
   if (isEmpty(v)) return null
   if (type === 'date') return esc(fmtDate(v))
-  if (type === 'words' || type === 'behaviours') {
+  if (isList(type) && Array.isArray(v)) {
     const cols = LIST_COLS[type]
     return `<table class="grid"><thead><tr>${cols.map(([, h]) => `<th>${esc(h)}</th>`).join('')}</tr></thead>
-      <tbody>${v.map((row) => `<tr>${cols.map(([k]) => `<td>${esc(row?.[k])}</td>`).join('')}</tr>`).join('')}</tbody></table>`
+      <tbody>${toRows(type, v).map((row) => `<tr>${cols.map(([k]) => `<td>${esc(row[k])}</td>`).join('')}</tr>`).join('')}</tbody></table>`
   }
-  if (typeof v === 'object') return esc(JSON.stringify(v))
-  return esc(v)
+  return esc(flatText(v))
 }
 
 function inputHtml (path, type, v, label) {
@@ -101,18 +118,21 @@ function inputHtml (path, type, v, label) {
   if (type === 'date') return `<input id="${id}" type="date" data-path="${path}" value="${esc(v || '')}">`
   if (type === 'consent') {
     const opts = ['', 'Yes', 'No']
-    return `<select id="${id}" data-path="${path}">${opts.map((o) => `<option value="${o}" ${String(v ?? '') === o ? 'selected' : ''}>${o || '— not recorded —'}</option>`).join('')}</select>`
+    if (v && !opts.includes(String(v))) opts.push(String(v))
+    return `<select id="${id}" data-path="${path}">${opts.map((o) => `<option value="${esc(o)}" ${String(v ?? '') === o ? 'selected' : ''}>${esc(o) || '— not recorded —'}</option>`).join('')}</select>`
   }
-  if (type === 'long') return `<textarea id="${id}" data-path="${path}" rows="${Math.max(2, Math.ceil(String(v || '').length / 60))}">${esc(v || '')}</textarea>`
-  if (type === 'words' || type === 'behaviours') {
+  if (isList(type) && (isEmpty(v) || Array.isArray(v))) {
     const cols = LIST_COLS[type]
-    const rows = Array.isArray(v) && v.length ? v : [{}]
+    const rows = Array.isArray(v) && v.length ? toRows(type, v) : [{}]
     return `<table class="grid" data-list="${path}" data-type="${type}">
       <thead><tr>${cols.map(([, h]) => `<th>${esc(h)}</th>`).join('')}<th><span class="sr-only">Remove</span></th></tr></thead>
       <tbody>${rows.map((r) => listRow(type, r)).join('')}</tbody></table>
-      <div class="row-actions"><button type="button" class="btn small" data-add="${path}">+ Add ${type === 'words' ? 'word or sign' : 'behaviour'}</button></div>`
+      <div class="row-actions"><button type="button" class="btn small" data-add="${path}">+ Add ${ADD_LABEL[type]}</button></div>`
   }
-  return `<input id="${id}" type="text" data-path="${path}" value="${esc(v ?? '')}" aria-label="${esc(label)}">`
+  if (type === 'text' && (v == null || typeof v !== 'object')) return `<input id="${id}" type="text" data-path="${path}" value="${esc(v ?? '')}" aria-label="${esc(label)}">`
+  // long text, or an unexpected shape from the AI -> plain text box
+  const text = flatText(v)
+  return `<textarea id="${id}" data-path="${path}" rows="${Math.max(2, Math.ceil(text.length / 60))}">${esc(text)}</textarea>`
 }
 
 function listRow (type, r = {}) {
@@ -128,15 +148,15 @@ export function renderPlan (container, plan, { mode = 'view', age = null } = {})
   container.innerHTML = SECTIONS.map((s) => `
     <section class="section" aria-label="${esc(s.title)}">
       <h2>${esc(s.title)}</h2>
-      <div class="fields ${s.fields.some(([, , t]) => t === 'words' || t === 'behaviours') ? '' : ''}">
+      <div class="fields">
         ${s.fields.map(([path, label, type]) => {
           if (type === 'computed') {
             return `<div class="field"><div class="field-label">${esc(label)}</div><div class="field-value">${age ?? '—'} <span class="muted" style="font-size:.85rem">(from date of birth)</span></div></div>`
           }
           const f = getPath(plan, path) || EMPTY()
           const flag = isFlagged(f)
-          const wide = type === 'words' || type === 'behaviours'
-          const shown = displayValue(type, f.value)
+          const wide = isList(type)
+          const shown = valueHtml(type, f.value)
           return `<div class="field ${flag ? 'flag' : ''}" id="${fid(path)}" ${wide ? 'style="grid-column:1/-1"' : ''}>
             <div class="field-label"><label for="${fid(path)}-in">${esc(label)}</label> ${statusBadge(f)} ${sourceTip(f, label)}</div>
             ${editing
@@ -178,13 +198,16 @@ export function collectPlan (container, original, who = 'family worker') {
   const plan = structuredClone(original)
   const stamp = `Edited by ${who} on ${fmtDate(new Date().toISOString().slice(0, 10))}`
 
-  const apply = (path, newVal) => {
+  const apply = (path, newVal, listType = null) => {
     const old = getPath(original, path) || EMPTY()
-    const same = JSON.stringify(old.value ?? null) === JSON.stringify(newVal)
+    const keepSrc = old.source && !/^Edited by /.test(old.source) ? ` (was: ${old.source})` : ''
+    const same = JSON.stringify(old.value ?? null) === JSON.stringify(newVal) ||
+      (typeof newVal === 'string' && old.value != null && flatText(old.value) === newVal) ||
+      (listType && Array.isArray(old.value) && JSON.stringify(normRows(listType, old.value)) === JSON.stringify(newVal ?? []))
     if (same) return false
     setPath(plan, path, isEmpty(newVal)
       ? EMPTY()
-      : { value: newVal, source: old.source ? `${stamp} (was: ${old.source})` : stamp, status: 'filled' })
+      : { value: newVal, source: stamp + keepSrc, status: 'filled' })
     return true
   }
 
@@ -198,7 +221,7 @@ export function collectPlan (container, original, who = 'family worker') {
       tr.querySelectorAll('[data-col]').forEach((t) => { r[t.dataset.col] = t.value.trim() })
       return r
     }).filter((r) => Object.values(r).some(Boolean))
-    apply(table.dataset.list, rows.length ? rows : null)
+    apply(table.dataset.list, rows.length ? rows : null, table.dataset.type)
   })
   container.querySelectorAll('[data-confirm]').forEach((cb) => {
     if (!cb.checked) return
