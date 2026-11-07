@@ -157,6 +157,7 @@ app.put('/api/plans/:id', gate, wrap(async (req, res) => {
   if (!plan || plan.child_id !== req.params.id) return res.status(400).json({ error: 'Plan child_id does not match' })
   if (!db.writable) return res.status(403).json({ error: 'This database is a read-only copy' })
   const saved = await db.putPlan({ ...plan, approved_by: null, approved_at: null })
+  for (const j of jobs.values()) if (j.childId === req.params.id) j.saved = true
   res.json(withMeta(saved))
 }))
 
@@ -174,10 +175,13 @@ app.get('/api/next-child-id', wrap(async (req, res) => {
   res.json({ child_id: await nextChildId() })
 }))
 
+// Next free ID. New-child drafts that are still waiting for review reserve their ID too,
+// so two unsaved drafts can never get the same child ID (saving one would overwrite the other).
 async function nextChildId () {
-  const plans = await db.listPlans()
-  const max = plans.reduce((m, p) => Math.max(m, Number(String(p.child_id).match(/(\d+)$/)?.[1] || 0)), 0)
-  return `FOBE-CHILD-${String(max + 1).padStart(4, '0')}`
+  const num = (id) => Number(String(id).match(/(\d+)$/)?.[1] || 0)
+  const ids = (await db.listPlans()).map((p) => num(p.child_id))
+  for (const j of jobs.values()) if (j.isNew && !j.saved) ids.push(num(j.childId))
+  return `FOBE-CHILD-${String(Math.max(0, ...ids) + 1).padStart(4, '0')}`
 }
 
 // ---------- new visit -> AI draft ----------
