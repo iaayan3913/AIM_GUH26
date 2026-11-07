@@ -335,3 +335,7 @@ input[type=file]::file-selector-button:hover { background: var(--tint); }
   .children td { border-bottom: 0; padding: 6px 16px; }
   .children tr { border-bottom: 1px solid var(--line); padding: 8px 0; }
 }
+
+/* Keyboard focus: FOBE light blue alone is too faint on white (WCAG 3:1), so pair it with navy. */
+:focus-visible { outline: 3px solid var(--navy, #002060); outline-offset: 2px; box-shadow: 0 0 0 6px rgba(0, 176, 240, .45); }
+.topbar :focus-visible { outline-color: #fff; }

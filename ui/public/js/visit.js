@@ -1,5 +1,5 @@
 // New visit: recording / photo of notes / typed notes -> progress -> review.
-import { api, esc, fullName, toast, auth, routeParams } from './util.js'
+import { api, esc, fullName, toast, auth, routeParams, ageFromDobClient } from './util.js'
 import { renderPlan, collectPlan, flagSummary, wireJumps } from './planform.js'
 
 export async function renderVisit (main, childId = '') {
@@ -133,7 +133,7 @@ export async function renderReview (main, jobId) {
   `
   wireJumps(main.querySelector('#flags'))
   const form = main.querySelector('#plan')
-  renderPlan(form, plan, { mode: 'review', age: null })
+  renderPlan(form, plan, { mode: 'review', age: ageFromDobClient(plan.dob?.value) })
 
   const save = async (andSign) => {
     if (!(await auth.ensure('save this plan'))) return
