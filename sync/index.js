@@ -213,6 +213,7 @@ export async function startPeer ({ db = null, role, pairingKey = null, dir = nul
       let saved = received[id]
       if (!saved || !fs.existsSync(saved)) {
         const original = safeName(entry.value.metadata?.name || path.basename(entry.key).replace(/^\d+-/, ''))
+        await fsp.mkdir(inboxDir, { recursive: true })
         saved = uniquePath(inboxDir, original)
         const tmp = saved + '.part'
         await pipeline(drive.createReadStream(entry.key), fs.createWriteStream(tmp))

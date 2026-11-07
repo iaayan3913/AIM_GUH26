@@ -8,13 +8,15 @@
     "test": "node test-db.js",
     "test:p2p": "node test-p2p.js",
     "office": "node demo-office.js",
-    "phone": "node demo-phone.js",
-    "bootstrap": "node bootstrap.js"
+    "phone": "node phone-app/server.js",
+    "bootstrap": "node bootstrap.js",
+    "phone:cli": "node demo-phone.js"
   },
   "dependencies": {
     "b4a": "^1.9.0",
     "compact-encoding": "^3.6.0",
     "corestore": "^7.16.1",
+    "express": "^5.3.0",
     "hyperbee": "^2.27.3",
     "hypercore-crypto": "^3.7.0",
     "hyperdht": "^6.36.0",

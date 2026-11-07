@@ -11,6 +11,7 @@ Status key: ⬜ not started · 🟨 in progress · ✅ done · ❌ blocked (writ
 | B3 | Read-only backup replica | `replicaDb()` on laptop 2 shows the office's care plans and updates live when the office edits; writing to it is refused | 15:45 | ✅ (one laptop) | Phone gets the office DB key automatically after pairing. Replica downloads the full core, so it still works with the office off. `putPlan` throws "Read-only backup..."; raw Hyperbee writes also fail (not the writer). `onChange(cb)` fires on live updates. |
 | B4 | Venue Wi-Fi fallback | if peers can't find each other, run a local HyperDHT bootstrap on the LAN (or a hotspot) and document the exact command here | 16:00 | ✅ (one laptop) | `bootstrap.js` runs a private 3-node HyperDHT on the LAN (UDP 49737). Peers use it via `FOBE_BOOTSTRAP=ip:port` or `--bootstrap ip:port`, which replaces the public DHT entirely, so it works with no internet. Tested: pairing <1 s, file + live backup OK. Venue is **eduroam (Windows "Public" network)**, which usually blocks laptop-to-laptop traffic, so plan on the phone hotspot. See "Wi-Fi fallback" below. |
 | B5 | Encryption at rest (stretch) | the data folder isn't readable as plain text; document the method used | 16:15 | ✅ (one laptop) | Opt-in: set `FOBE_DB_PASSPHRASE`. Every Hypercore block (care plans on the office PC and the backups, plus the phone outbox with its recordings) is encrypted with XSalsa20 (libsodium, Hypercore block encryption). Key = Argon2id(passphrase) and is never saved to disk. A wrong or missing passphrase is refused on the office. A backup laptop **without** the passphrase still stores the ciphertext ("blind backup") but can't read it. Files in `data/inbox/` are plain so the AI can read them. `FOBE_DB_PASSPHRASE=x npm run test:p2p` scans every storage file for plaintext: none found. Unset = exactly as before. |
+| B6 | Work phone web app | `npm run phone` opens http://localhost:3001: pair, record visit (consent first), notes photo/typed, outbox, read-only backup | 16:30 | ✅ (one laptop) | `sync/phone-app/`: Express on 127.0.0.1:3001 (local only), vanilla JS with no CDNs, 420 px phone layout. Reuses startPeer / sendFile / replicaDb. Recording: MediaRecorder, converted in the browser to **16 kHz mono 16-bit WAV** (verified in Edge). Consent must be ticked for each recording. Photo via file upload or webcam, typed notes saved as .txt. Outbox shows Queued / Sending… / Delivered ✓ and survives restarts (`data/phone/outbox.json`). Backup shows name, last updated, review due (amber = due within 30 days, red = overdue) and "Last synced hh:mm", with no edit buttons anywhere. Tested: pair with the office offline, queue a wav + txt, office comes online, both Delivered, backup + live update. |
 
 ## Tests
 ```
@@ -37,6 +38,15 @@ cd sync; node demo-phone.js <PAIRING-KEY> --backup
 - B3: phone lists the 5 plans. Type `edit FOBE-CHILD-0002 allergies Peanuts` in the office terminal and the phone prints `>> backup updated live: Leo Bennett changed allergies`. Type `write` in the phone terminal to show the refusal.
 - Reset demo data afterwards: `npm run seed` (office). Phone data lives in `sync\data\phone\`; delete it to unpair.
 - Windows Firewall: click **Allow** for Node.js (Private networks) the first time.
+
+## Work phone app (B6)
+```
+cd sync; npm run phone          # then open http://localhost:3001 in Edge
+```
+- Uses the same folder as `demo-phone.js` (`data/phone`), so it reuses that pairing. **Stop demo-phone.js first** (only one process can open the folder).
+- Office PC side is unchanged: `node demo-office.js` (or the UI).
+- Options: `npm run phone -- --port 3002 --dir ./data/phone2 --bootstrap ip:port`. `FOBE_BOOTSTRAP` / `FOBE_DB_PASSPHRASE` env vars work too.
+- First recording: Edge asks for microphone permission, click Allow. The old CLI is still `npm run phone:cli`.
 
 ## Wi-Fi fallback (B4)
 Try the normal commands first. If `peer connected` doesn't appear within ~20 s:

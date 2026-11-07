@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FOBE Work Phone</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="phone">
+  <header class="top">
+    <div class="brand">FOBE <span>Work phone</span></div>
+    <div id="pill" class="pill pill-grey" role="status" aria-live="polite">Not paired</div>
+  </header>
+
+  <main>
+    <!-- 1. Pair -->
+    <section id="screen-pair" class="screen" aria-labelledby="h-pair">
+      <h1 id="h-pair">Pair with Office PC</h1>
+      <div id="pair-form">
+        <p>Type the pairing key shown on the office PC. You only need to do this once.</p>
+        <label for="pair-key" class="label">Pairing key</label>
+        <input id="pair-key" class="input key-input" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="abcd-efgh-ijkl-mnop" maxlength="19">
+        <button id="pair-btn" class="btn btn-primary">Pair</button>
+        <p id="pair-error" class="error" role="alert"></p>
+      </div>
+      <div id="pair-done" hidden>
+        <div class="card">
+          <div class="muted">Paired with key</div>
+          <div id="pair-key-shown" class="key-shown"></div>
+          <div id="pair-office" class="muted"></div>
+        </div>
+        <a href="#record" class="btn btn-primary">Record a visit</a>
+        <button id="repair-btn" class="btn btn-quiet">Pair with a different office</button>
+      </div>
+    </section>
+
+    <!-- 2. Record -->
+    <section id="screen-record" class="screen" aria-labelledby="h-record" hidden>
+      <h1 id="h-record">Record visit</h1>
+      <div id="rec-consent" class="card consent">
+        <label class="check">
+          <input type="checkbox" id="consent">
+          <span>Parent has agreed to recording</span>
+        </label>
+        <p class="muted small">Ask before every recording. The recording goes only to the office PC.</p>
+      </div>
+      <div class="rec-area">
+        <div id="rec-timer" class="timer" aria-live="off">00:00</div>
+        <button id="rec-btn" class="rec-btn" disabled aria-label="Start recording">
+          <span class="rec-dot"></span><span id="rec-label">Record</span>
+        </button>
+        <p id="rec-hint" class="muted">Tick the consent box to start.</p>
+      </div>
+      <div id="rec-review" class="card" hidden>
+        <div class="muted">Recording ready (16 kHz mono WAV, <span id="rec-size"></span>)</div>
+        <audio id="rec-audio" controls></audio>
+        <button id="rec-send" class="btn btn-primary">Send to office</button>
+        <button id="rec-discard" class="btn btn-quiet">Discard</button>
+      </div>
+      <p id="rec-error" class="error" role="alert"></p>
+    </section>
+
+    <!-- 3. Notes -->
+    <section id="screen-notes" class="screen" aria-labelledby="h-notes" hidden>
+      <h1 id="h-notes">Add notes</h1>
+      <div class="card">
+        <h2>Photo of handwritten notes</h2>
+        <button id="photo-btn" class="btn btn-primary">Upload photo</button>
+        <input id="photo-file" type="file" accept="image/*" capture="environment" hidden>
+        <button id="cam-btn" class="btn btn-secondary">Take photo with camera</button>
+        <div id="cam" hidden>
+          <video id="cam-video" autoplay playsinline muted></video>
+          <button id="cam-snap" class="btn btn-primary">Capture</button>
+          <button id="cam-close" class="btn btn-quiet">Close camera</button>
+        </div>
+        <div id="photo-review" hidden>
+          <img id="photo-preview" alt="Preview of the notes photo">
+          <button id="photo-send" class="btn btn-primary">Send photo to office</button>
+          <button id="photo-discard" class="btn btn-quiet">Retake</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Typed notes</h2>
+        <label for="notes-text" class="label">Notes (saved as a .txt file)</label>
+        <textarea id="notes-text" class="input" rows="7" placeholder="e.g. Mum says no allergies. Likes trains..."></textarea>
+        <button id="notes-send" class="btn btn-primary">Send notes to office</button>
+      </div>
+      <p id="notes-error" class="error" role="alert"></p>
+    </section>
+
+    <!-- 4. Outbox -->
+    <section id="screen-outbox" class="screen" aria-labelledby="h-outbox" hidden>
+      <h1 id="h-outbox">Outbox</h1>
+      <p class="muted">Files go straight to the office PC, peer-to-peer. If the office is offline they wait here and send automatically.</p>
+      <ul id="outbox-list" class="list"></ul>
+    </section>
+
+    <!-- 5. Backup -->
+    <section id="screen-backup" class="screen" aria-labelledby="h-backup" hidden>
+      <h1 id="h-backup">Care plans <span class="ro-label">🔒 Read-only backup</span></h1>
+      <p id="backup-synced" class="muted">Last synced: never</p>
+      <ul id="backup-list" class="list"></ul>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <nav class="tabs" aria-label="Screens">
+    <a href="#pair" data-tab="pair"><span aria-hidden="true">🔗</span>Pair</a>
+    <a href="#record" data-tab="record"><span aria-hidden="true">🎙️</span>Record</a>
+    <a href="#notes" data-tab="notes"><span aria-hidden="true">📝</span>Notes</a>
+    <a href="#outbox" data-tab="outbox"><span aria-hidden="true">📤</span>Outbox<b id="badge" class="badge" hidden></b></a>
+    <a href="#backup" data-tab="backup"><span aria-hidden="true">📋</span>Backup</a>
+  </nav>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
