@@ -89,9 +89,15 @@
       <div id="visit-start" hidden>
         <h1 id="h-visit" class="title">New visit</h1>
         <div class="card">
-          <label for="child-name" class="label">Who is this visit for?</label>
-          <input id="child-name" class="input" list="children" autocomplete="off" placeholder="Child's full name, e.g. Ayaan Malik">
-          <datalist id="children"></datalist>
+          <label for="child-select" class="label">Who is this visit for?</label>
+          <select id="child-select" class="input select">
+            <option value="">Choose a child…</option>
+            <option value="__new">+ New child</option>
+          </select>
+          <div id="new-child-row" hidden>
+            <label for="child-name" class="label">New child's full name</label>
+            <input id="child-name" class="input" autocomplete="off" placeholder="e.g. Ayaan Malik">
+          </div>
           <p class="hint">Used to name the files, e.g. <code id="name-example">Ayaan-Malik_recording_…</code></p>
           <p id="visit-error" class="error" role="alert"></p>
           <button id="visit-start-btn" class="btn btn-primary"><svg class="ic"><use href="#i-plus"/></svg>Start visit</button>

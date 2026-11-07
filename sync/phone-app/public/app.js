@@ -215,12 +215,18 @@ const itemRow = (i, showChild) => `<li>
   <div class="sub">${showChild && i.child ? esc(i.child) + ' · ' : ''}${size(i.size)} · ${hhmm(i.createdAt)}${i.error ? ' · ' + esc(i.error) : ''}</div></div>
   ${chip(i.status)}</li>`
 
+function chosenChild () {
+  const sel = $('child-select').value
+  return sel === '__new' ? $('child-name').value.replace(/\s+/g, ' ').trim() : sel
+}
+
 function renderVisit () {
   const v = state.visit
   $('visit-start').hidden = !!v
   $('visit-active').hidden = !v
   if (!v) {
-    const n = $('child-name').value.trim()
+    $('new-child-row').hidden = $('child-select').value !== '__new'
+    const n = chosenChild()
     $('name-example').textContent = `${slug(n || 'Ayaan Malik')}_recording_${today()}_1.wav`
     return
   }
@@ -306,24 +312,33 @@ $('visit-list').addEventListener('click', async (e) => {
   }
 })
 
-function startVisit (name) {
-  const child = name.replace(/\s+/g, ' ').trim()
-  if (!child) { $('visit-error').textContent = 'Enter the child\'s name to start the visit.'; return }
+function startVisit () {
+  const child = chosenChild()
+  if (!child) {
+    $('visit-error').textContent = $('child-select').value === '__new' ? 'Type the new child\'s full name.' : 'Choose a child, or + New child.'
+    return
+  }
   $('visit-error').textContent = ''
   saveVisit({ id: Date.now().toString(36), child, startedAt: new Date().toISOString() })
   $('child-name').value = ''
+  $('child-select').value = ''
   for (const id of ['rec-name', 'audio-name', 'photo-name', 'notes-name']) delete $(id).dataset.touched
   renderVisit()
   toast(`Visit started for ${child}`, 'visit')
 }
-$('visit-start-btn').addEventListener('click', () => startVisit($('child-name').value))
-$('child-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') startVisit($('child-name').value) })
+$('visit-start-btn').addEventListener('click', () => startVisit())
+$('child-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') startVisit() })
 $('child-name').addEventListener('input', () => renderVisit())
+$('child-select').addEventListener('change', () => {
+  $('visit-error').textContent = ''
+  renderVisit()
+  if ($('child-select').value === '__new') $('child-name').focus()
+})
 
 $('visit-rename').addEventListener('click', () => {
   const box = $('visit-child')
   if (box.querySelector('input')) return
-  box.innerHTML = '<input class="input" id="rename-input" aria-label="Child name" autocomplete="off" list="children">'
+  box.innerHTML = '<input class="input" id="rename-input" aria-label="Child name" autocomplete="off">'
   const inp = $('rename-input')
   inp.value = state.visit.child
   inp.focus()
@@ -724,8 +739,17 @@ async function refreshBackup () {
   try {
     backupInfo = await api('/api/backup')
     state.plans = backupInfo.plans || []
-    const names = [...new Set(state.plans.map(p => p.name))]
-    $('children').innerHTML = names.map(n => `<option value="${esc(n)}">`).join('')
+    const names = [...new Set(state.plans.map(p => p.name))].sort((a, b) => a.localeCompare(b))
+    const sel = $('child-select')
+    const keep = sel.value
+    const sig = names.join('|')
+    if (sel.dataset.sig !== sig) {
+      sel.dataset.sig = sig
+      sel.innerHTML = '<option value="">Choose a child…</option>' +
+        (names.length ? `<optgroup label="Children with a care plan">${names.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join('')}</optgroup>` : '') +
+        '<option value="__new">+ New child</option>'
+      sel.value = [...sel.options].some(o => o.value === keep) ? keep : ''
+    }
     if (current === 'backup') renderBackup()
   } catch {}
 }
