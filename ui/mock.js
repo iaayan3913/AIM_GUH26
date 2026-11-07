@@ -128,14 +128,20 @@ function mergeMissing (draft, old) {
 }
 
 // lanyardText(carePlan, optIns = []) -> string (<= 130 chars)
-export async function lanyardText (plan, optIns = []) {
-  const v = (f) => (f && f.status !== 'missing' ? f.value : null)
-  const parts = [`I'm ${v(plan.first_name) || 'a FOBE child'}.`]
-  if (optIns.includes('diagnosis') && v(plan.diagnosis)) parts.push(`${String(v(plan.diagnosis)).split(/[,(]/)[0].trim()}.`)
-  if (optIns.includes('communication') && v(plan.attributes?.communication_learning)) parts.push(String(v(plan.attributes.communication_learning)).split('.')[0] + '.')
-  if (optIns.includes('allergies') && v(plan.allergies)) parts.push(`Allergy: ${v(plan.allergies)}.`)
-  if (optIns.includes('contact') && v(plan.emergency_contact)) parts.push(`Call ${v(plan.emergency_contact)}.`)
-  let s = parts.join(' ')
-  if (s.length > 130) s = s.slice(0, 129) + '…'
-  return s
+// Same rules as ../ai: name, allergy, contact and communication always; surname / dob /
+// diagnosis / ethnicity only if opted in. Lowest-priority parts dropped until it fits.
+export function lanyardText (plan, optIns = []) {
+  const val = (f) => (f && f.status !== 'missing' && f.value) || ''
+  const first = (s) => String(s).split(/[.;(]/)[0].trim()
+  const parts = [
+    [val(plan.first_name), optIns.includes('surname') && val(plan.surname)].filter(Boolean).join(' '),
+    optIns.includes('dob') && val(plan.dob) && 'DOB ' + val(plan.dob),
+    optIns.includes('diagnosis') && val(plan.diagnosis) && first(val(plan.diagnosis)),
+    optIns.includes('ethnicity') && val(plan.ethnicity),
+    val(plan.allergies) && !/^none/i.test(val(plan.allergies)) && 'ALLERGY: ' + first(val(plan.allergies)),
+    val(plan.emergency_contact) && 'Call ' + val(plan.emergency_contact),
+    val(plan.attributes?.communication_learning) && first(val(plan.attributes.communication_learning))
+  ].filter(Boolean)
+  while (parts.length > 1 && parts.join('. ').length > 130) parts.pop()
+  return parts.join('. ').slice(0, 130)
 }

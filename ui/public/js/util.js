@@ -56,6 +56,17 @@ export function reviewBadge (c) {
   return '<span class="badge grey">No review date</span>'
 }
 
+// Same rule as ageFromDob() in sync/db.js (for old versions shown in the browser).
+export function ageFromDobClient (dob, today = new Date()) {
+  if (!dob) return null
+  const d = new Date(dob)
+  if (isNaN(d)) return null
+  let age = today.getFullYear() - d.getFullYear()
+  const m = today.getMonth() - d.getMonth()
+  if (m < 0 || (m === 0 && today.getDate() < d.getDate())) age--
+  return age
+}
+
 // "#/visit?audio=x.wav" -> URLSearchParams
 export const routeParams = () => new URLSearchParams(location.hash.split('?')[1] || '')
 

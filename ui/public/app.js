@@ -6,6 +6,8 @@ import { renderPrint } from './js/print.js'
 import { renderVisit, renderReview } from './js/visit.js'
 import { renderLogin, refreshAuth } from './js/auth.js'
 import { renderInbox } from './js/inbox.js'
+import { renderLanyard } from './js/lanyard.js'
+import { renderHistory, renderVersion } from './js/history.js'
 import { api, auth } from './js/util.js'
 
 // WebAuthn rpID is 'localhost', so 127.0.0.1 would break the YubiKey.
@@ -21,7 +23,10 @@ const routes = [
   [/^visit$/, renderVisit],
   [/^visit\/([^/]+)$/, renderVisit],
   [/^review\/([^/]+)$/, renderReview],
-  [/^inbox$/, renderInbox]
+  [/^inbox$/, renderInbox],
+  [/^child\/([^/]+)\/lanyard$/, renderLanyard],
+  [/^child\/([^/]+)\/history$/, renderHistory],
+  [/^child\/([^/]+)\/version\/([^/]+)$/, renderVersion]
 ]
 
 async function route () {

@@ -130,6 +130,16 @@ app.put('/api/plans/:id', gate, wrap(async (req, res) => {
   res.json(withMeta(saved))
 }))
 
+// Lanyard "if I'm lost" tag text (<= 130 chars, opt-in only for sensitive details).
+const LANYARD_OPT_INS = ['surname', 'dob', 'diagnosis', 'ethnicity']
+app.post('/api/plans/:id/lanyard', wrap(async (req, res) => {
+  const plan = await db.getPlan(req.params.id)
+  if (!plan) return res.status(404).json({ error: 'No care plan for that child' })
+  const optIns = [].concat(req.body?.optIns || []).filter((o) => LANYARD_OPT_INS.includes(o))
+  const text = String(await ai.lanyardText(plan, optIns) ?? '').slice(0, 130)
+  res.json({ text })
+}))
+
 app.get('/api/next-child-id', wrap(async (req, res) => {
   res.json({ child_id: await nextChildId() })
 }))
