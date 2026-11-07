@@ -12,3 +12,9 @@ models/
 *.jpg
 *.png
 !ui/public/**/*.png
+.venv/
+venv/
+ENV/
+env/
+_pycache__/
+*.py[cod]
