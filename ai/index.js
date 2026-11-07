@@ -63,7 +63,7 @@ async function chat (system, user, schema, kvCache, modelId) {
   })
   for await (const _ of run.events); // eslint-disable-line no-unused-vars
   const final = await run.final
-  if (process.env.FOBE_DEBUG) console.error('   llm', Date.now() - t, 'ms', JSON.stringify(await run.stats))
+  if (process.env.FOBE_DEBUG) console.error('   llm', Date.now() - t, 'ms', final.contentText.slice(0, 600))
   const text = final.contentText.replace(/<think>[\s\S]*?<\/think>/g, '').trim()
   if (!schema) return text
   try { return JSON.parse(text) } catch { console.warn('[ai] unparseable LLM reply, section left missing'); return {} }
@@ -114,7 +114,7 @@ const SECTIONS = [
     surname: "child's family name / surname, e.g. the last word of the child's full name (only if written or said)",
     dob: 'date of birth, written as YYYY-MM-DD',
     gender: '"Male" or "Female", only if explicitly stated with a word like boy/girl/male/female; pronouns alone are NOT enough',
-    ethnicity: 'only if explicitly stated (e.g. Pakistani, Bangladeshi)',
+    ethnicity: 'ethnic background if written or said, e.g. a word like PAKISTANI or Bangladeshi on its own in the notes counts',
     photo_consent: '"Yes" or "No" for consent to take PHOTOS of the child. Consent to RECORD the meeting is NOT photo consent',
     emergency_contact: 'relationship, name and phone number, e.g. "Mum (Name) - 07700 900000"'
   } },
@@ -159,6 +159,15 @@ export function quoteMatch (quote, source) {
   return frac(q) >= 0.6 ? 'close' : 'none'
 }
 
+// Longer values must reuse words from the source (4-letter prefix tolerates eats/eat, walks/walking).
+// Short normalised answers ("Male" from "BOY", "None" from "NO MEDS") are exempt.
+export function grounded (value, source) {
+  const words = norm(value).split(' ').filter((w) => w.length >= 4)
+  if (norm(value).split(' ').length < 3 || !words.length) return true
+  const src = ' ' + norm(source)
+  return words.filter((w) => src.includes(' ' + w.slice(0, 4))).length / words.length >= 0.34
+}
+
 const MISSING = () => ({ value: null, source: null, status: 'missing' })
 
 // trusted = source text that is NOT machine-translated (notes, English speech)
@@ -169,6 +178,7 @@ export function leaf (key, value, quote, source, trusted = source, desc = '') {
   if (desc && v.split(/\s+/).length >= 3 && quoteMatch(v, desc) === 'exact') return MISSING()
   const match = quoteMatch(quote, source)
   if (match === 'none') return MISSING() // never invent: no supporting quote = not stated
+  if (!grounded(v, source)) return MISSING() // real quote, but the value itself was made up
   if (MUST_MENTION[key] && !MUST_MENTION[key].test(quote)) return MISSING()
   if (key in HEALTH) {
     // the quote must talk about this topic at all (an allergy quote can't support "medication: None")

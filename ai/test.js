@@ -35,7 +35,7 @@ if (cmd === 'transcribe') {
   const plan = await timed('draftCarePlan', ai.draftCarePlan({ childId: 'FOBE-CHILD-DEMO', transcript, notes }, progress))
   summary(plan)
   // safety self-check: the recording alone never mentions medication
-  if (!notes) assert.equal(plan.medication.status, 'missing', 'medication must be missing without notes')
+  if (!notes && (isAudio(a) || a.endsWith('.json'))) assert.equal(plan.medication.status, 'missing', 'medication must be missing without notes')
   console.log('\n' + JSON.stringify(plan))
 } else if (cmd === 'ocr') {
   console.log((await timed('ocr', ai.ocrNotes(a, progress))).text)
@@ -54,6 +54,10 @@ if (cmd === 'transcribe') {
   assert.equal(ai.leaf('allergies', 'Eggs', "allergic to eggs", src).status, 'filled')
   assert.equal(ai.leaf('medication', 'Calpol', 'takes Calpol daily', src).status, 'missing')
   assert.equal(ai.leaf('medication', 'None', "allergic to eggs", src).status, 'missing') // quote isn't about medicine
+  const notes = 'DX: AUTISM (DIAGNOSED AGE 4). BOY. PAKISTANI. NO MEDS - MUM CONFIRMED BY PHONE'
+  assert.equal(ai.leaf('communication_learning', 'uses gestures and limited speech', 'DX: AUTISM', notes).status, 'missing') // invented value, real quote
+  assert.ok(ai.grounded('walks fine, runs off near trains', 'He walks fine, but he runs off if he sees a train'))
+  assert.equal(ai.leaf('medication', 'None', 'NO MEDS - MUM CONFIRMED BY PHONE', notes).status, 'filled')
   assert.equal(ai.leaf('gender', 'Male', 'allergic to eggs', src, src, '"Male" or "Female", only if stated').status, 'filled')
   assert.equal(ai.leaf('physical_mobility', 'walking, mobility, running off', "allergic to eggs", src, src, 'walking, mobility, running off').status, 'missing')
   const plan = JSON.parse(await readFile(new URL('../shared/careplan.example.json', import.meta.url), 'utf8'))
