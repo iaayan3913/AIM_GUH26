@@ -11,6 +11,8 @@
     "b4a": "^1.9.0",
     "corestore": "^7.16.1",
     "hyperbee": "^2.27.3",
+    "hyperdht": "^6.36.0",
+    "hyperdrive": "^13.3.4",
     "hyperswarm": "^4.17.2"
   }
 }
