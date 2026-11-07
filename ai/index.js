@@ -98,7 +98,7 @@ const SECTIONS = [
   } },
   { name: 'health', fields: {
     diagnosis: 'medical diagnosis, only if explicitly stated',
-    medication: 'medicines the child takes. Write "None" ONLY if someone explicitly says no medication. If medication is never discussed, leave empty',
+    medication: 'medicines the child takes, or "None" if the SOURCE says no meds / no medication. Empty if medication is never mentioned',
     allergies: 'allergies and reaction, only if explicitly stated'
   } },
   { name: 'about_me', fields: {
@@ -155,7 +155,7 @@ function leaf (key, value, quote, source) {
 
 async function section ({ fields }, source) {
   const props = Object.fromEntries(Object.keys(fields).map((k) => [k, {
-    type: 'object', properties: { value: { type: 'string', maxLength: 160 }, quote: { type: 'string', maxLength: 100 } }, required: ['value', 'quote'], additionalProperties: false
+    type: 'object', properties: { value: { type: 'string' }, quote: { type: 'string' } }, required: ['value', 'quote'], additionalProperties: false
   }]))
   const list = Object.entries(fields).map(([k, d]) => `- ${k}: ${d}`).join('\n')
   const out = await chat(withSource(source), `Fields:\n${list}\n\nReply as JSON.`,
@@ -167,7 +167,7 @@ async function listSection (source, itemDesc, itemProps) {
   const schema = {
     type: 'object',
     properties: { items: { type: 'array', maxItems: 6, items: {
-      type: 'object', properties: { ...Object.fromEntries(itemProps.map((p) => [p, { type: 'string', maxLength: 100 }])), quote: { type: 'string', maxLength: 100 } },
+      type: 'object', properties: { ...Object.fromEntries(itemProps.map((p) => [p, { type: 'string' }])), quote: { type: 'string' } },
       required: [...itemProps, 'quote'], additionalProperties: false
     } } },
     required: ['items'], additionalProperties: false
@@ -209,7 +209,7 @@ async function buildPlan (childId, source, onProgress) {
     parts[s.name] = await section(s, source)
   }
   onProgress('drafting words_phrases', Math.round((100 * SECTIONS.length) / steps))
-  const words = await listSection(source, 'special words, sounds or signs the child uses and what each means', ['word_or_sign', 'meaning'])
+  const words = await listSection(source, 'words or sounds the CHILD himself/herself says (or signs the child makes) that have a special meaning, and what each means. Not words said by adults', ['word_or_sign', 'meaning'])
   onProgress('drafting challenging_behaviours', Math.round((100 * (SECTIONS.length + 1)) / steps))
   const behaviours = await listSection(source, 'challenging behaviours, what triggers them and what calms them (control measures)', ['behaviour', 'triggers', 'control_measures'])
   onProgress('done', 100)
