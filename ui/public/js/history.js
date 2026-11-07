@@ -1,6 +1,7 @@
 // Version history per child (append-only: every save is kept).
 import { api, esc, fmtDateTime, fullName, ageFromDobClient } from './util.js'
-import { allFields, getPath, renderPlan } from './planform.js'
+import { allFields, getPath, wireSources } from './planform.js'
+import { docSheetHtml } from './docsheet.js'
 
 const name = (p) => fullName({ first_name: p.first_name?.value, surname: p.surname?.value })
 
@@ -52,5 +53,7 @@ export async function renderVersion (main, childId, savedAt) {
       ${v.approved_at ? `Signed off by ${esc(v.approved_by)}.` : 'Not signed off.'}
       ${versions[0].saved_at === v.saved_at ? 'This is the current version.' : ''}</div>
     <div id="plan"></div>`
-  renderPlan(main.querySelector('#plan'), v, { mode: 'view', age: ageFromDobClient(v.dob?.value) })
+  const box = main.querySelector('#plan')
+  box.innerHTML = `<div class="plan-doc-wrap">${docSheetHtml(v, { age: ageFromDobClient(v.dob?.value) }, { interactive: true })}</div>`
+  wireSources(box)
 }

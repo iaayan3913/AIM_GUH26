@@ -211,17 +211,10 @@ dialog.modal::backdrop { background: rgba(10, 30, 36, .55); }
   padding: 14mm 14mm 20mm; box-shadow: 0 2px 16px rgba(0,0,0,.15); font-size: 11pt; line-height: 1.35;
   position: relative;
 }
-.sheet h1 { font-size: 18pt; margin: 0; }
-.sheet h2 { font-size: 12.5pt; margin: 12pt 0 4pt; padding-bottom: 2pt; border-bottom: 1.5pt solid #000; }
-.sheet .head { display: flex; gap: 12pt; align-items: flex-start; }
-.sheet .photo { width: 28mm; height: 34mm; font-size: 18pt; border: 1pt solid #000; background: #f2f2f2; color: #000; border-radius: 0; }
-.sheet table { width: 100%; border-collapse: collapse; }
-.sheet th, .sheet td { border: .75pt solid #555; padding: 3pt 5pt; text-align: left; vertical-align: top; white-space: pre-wrap; }
-.sheet th { background: #eee; width: 32%; font-weight: 700; }
-.sheet .grid th { width: auto; font-size: inherit; padding: 3pt 5pt; }
-.sheet .grid td { padding: 3pt 5pt; }
-.sheet .nr { font-style: italic; }
-.sheet .draft { border: 1.5pt solid #000; padding: 3pt 6pt; display: inline-block; font-weight: 700; margin-top: 4pt; }
+.sheet .fobe-doc { font-size: 10.5pt; }
+.print-wrap { width: 100%; border-collapse: collapse; }
+.print-wrap > tbody > tr > td, .print-wrap > tfoot > tr > td { padding: 0; border: 0; }
+.print-spacer { height: 0; }
 .sheet .foot { position: absolute; left: 14mm; right: 14mm; bottom: 8mm; border-top: .75pt solid #000; padding-top: 3pt; font-size: 9pt; text-align: center; }
 .print-foot { display: none; }
 
@@ -236,9 +229,68 @@ dialog.modal::backdrop { background: rgba(10, 30, 36, .55); }
     display: block; position: fixed; left: 0; right: 0; bottom: 0;
     border-top: .75pt solid #000; padding-top: 3pt; font-size: 9pt; text-align: center; background: #fff;
   }
-  .sheet h2, .sheet tr { break-inside: avoid; page-break-inside: avoid; }
-  .sheet h2 { break-after: avoid; page-break-after: avoid; }
+  .print-spacer { height: 9mm; }
+  .fobe-doc tr { break-inside: avoid; page-break-inside: avoid; }
+  .fobe-doc .d-bar { break-after: avoid; page-break-after: avoid; }
+  .fobe-doc * { -webkit-print-color-adjust: exact; print-color-adjust: exact; } /* keep the coloured bars */
 }
+
+/* ---------- FOBE care plan form (matches "Care plan template.doc") ---------- */
+.fobe-doc {
+  --fobe-blue: #00B0F0; --fobe-pink: #FF0066; --fobe-red: #FF3300; --fobe-green: #00B050; --fobe-navy: #002060;
+  font-family: Calibri, Carlito, "Segoe UI", Arial, sans-serif; color: #000; background: #fff; font-size: 1rem; line-height: 1.3;
+}
+.fobe-doc table { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 0; }
+.fobe-doc th, .fobe-doc td { border: 1px solid #000; padding: 4px 6px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.fobe-doc th { font-weight: 700; background: #fff; }
+.fobe-doc .dv-text { white-space: pre-wrap; }
+.fobe-doc .nr { color: #666; font-style: italic; font-size: .9em; }
+.fobe-doc table + table { border-top: 0; }
+.fobe-doc table + table tr:first-child > * { border-top: 0; }
+
+.d-head { margin-bottom: 6px !important; }
+.d-head th { font-size: .95em; vertical-align: top; }
+.d-head .d-c { height: 2em; }
+.d-logo { vertical-align: middle !important; text-align: center !important; padding: 4px !important; }
+.d-logo img { max-width: 100%; max-height: 3.2em; display: block; margin: 0 auto; }
+.d-logo-text { color: var(--fobe-blue); font-weight: 800; font-size: 2em; line-height: 1; display: inline-block; }
+.d-logo-text small { display: block; font-size: .3em; background: var(--fobe-pink); color: #fff; padding: 1px 3px; font-weight: 700; }
+.d-title { font-size: 1.9em; font-weight: 700; text-align: center !important; vertical-align: middle !important; }
+
+.d-name { text-align: center !important; color: var(--fobe-blue); font-weight: 700; font-size: 1.25em; }
+.d-photo { text-align: center !important; vertical-align: middle !important; }
+.d-initials { display: block; font-size: 2.4em; font-weight: 700; color: #c9d6db; }
+.d-box td { height: 6.5em; }
+.d-id .d-l, .d-two th, .d-attr th { vertical-align: top; }
+
+.fobe-doc .d-bar { font-weight: 700; text-align: center; padding: 3px 6px; height: auto; }
+.fobe-doc .d-about { background: var(--fobe-blue); }
+.fobe-doc .d-attrs { background: var(--fobe-pink); }
+.fobe-doc .d-behav { background: var(--fobe-red); color: var(--fobe-navy); font-size: 1.05em; }
+.fobe-doc .d-control { background: var(--fobe-green); color: var(--fobe-navy); font-size: 1.05em; }
+.d-two th { text-align: center; font-size: 1.05em; }
+.d-two .d-watch { color: #FF0000; }
+.d-attr td:not(.d-bar) { height: 3.6em; }
+.d-cb td { height: 3.4em; }
+.d-cb .d-empty td { height: 2.6em; }
+.d-trig { font-size: .9em; margin-top: 2px; }
+.d-sign { margin-top: 6px !important; }
+.d-sign th { width: 12%; font-size: .9em; }
+
+/* on-screen extras: amber flags + source quotes, same as the edit form */
+.fobe-doc .dv { position: relative; }
+.fobe-doc .dv + .dv { margin-top: 6px; padding-top: 6px; border-top: 1px dashed #bbb; }
+.fobe-doc .dv-label { font-size: .8em; font-weight: 700; color: #444; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.fobe-doc .dv-label:empty { display: none; }
+.fobe-doc .dv.flag { background: var(--amber-bg); box-shadow: 0 0 0 4px var(--amber-bg); outline: 2px solid var(--amber-line); outline-offset: 4px; }
+.fobe-doc .dv.flag .nr { color: var(--amber-ink); }
+.fobe-doc .d-flagcell { background: var(--amber-bg); }
+.fobe-doc .badge { font-size: .72rem; padding: 0 6px; }
+.fobe-doc .src-btn { font-size: .72rem; min-height: 24px; padding: 0 8px; }
+.fobe-doc .dv-inline { font-size: 1rem; margin-left: 6px; display: inline-flex; gap: 4px; align-items: center; color: #000; font-weight: 400; }
+.fobe-doc .d-bar .src, .fobe-doc .d-bar .badge { margin-left: 6px; vertical-align: middle; }
+.plan-doc-wrap { overflow-x: auto; }
+@media (max-width: 760px) { .plan-doc-wrap .fobe-doc { min-width: 700px; } }
 
 @media (max-width: 640px) {
   :root { font-size: 18px; }

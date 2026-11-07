@@ -61,6 +61,14 @@ app.use(session({
 // Static files + locally bundled libraries (no CDNs).
 const noCache = { setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') } // always revalidate (cheap on localhost)
 app.use(express.static(path.join(HERE, 'public'), noCache))
+// FOBE logo from ui/private/ (gitignored, never pushed). The page falls back to a text logo if absent.
+app.get('/brand/logo', (req, res) => {
+  const dir = path.join(HERE, 'private')
+  const file = ['fobe-logo.png', 'fobe-logo.jpeg', 'fobe-logo.jpg'].map((f) => path.join(dir, f)).find((f) => fs.existsSync(f))
+  if (!file) return res.status(404).end()
+  res.setHeader('Cache-Control', 'no-cache')
+  res.sendFile(file)
+})
 app.use('/vendor/simplewebauthn', express.static(path.join(HERE, 'node_modules/@simplewebauthn/browser/esm'), noCache))
 
 // ---------- helpers ----------

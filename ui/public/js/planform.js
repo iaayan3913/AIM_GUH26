@@ -72,15 +72,15 @@ export function flaggedFields (plan) {
   return allFields().filter(([p]) => isFlagged(getPath(plan, p))).map(([p, label]) => ({ path: p, label, status: getPath(plan, p)?.status || 'missing' }))
 }
 
-const fid = (path) => 'f-' + path.replace(/\./g, '-')
+export const fid = (path) => 'f-' + path.replace(/\./g, '-')
 
-function statusBadge (f) {
+export function statusBadge (f) {
   if (!f || f.status === 'missing') return '<span class="badge amber">Missing</span>'
   if (f.status === 'needs_review') return '<span class="badge amber">Needs review</span>'
   return ''
 }
 
-function sourceTip (f, label) {
+export function sourceTip (f, label) {
   if (!f?.source) return ''
   return `<span class="src"><button type="button" class="src-btn" aria-label="Where this came from: ${esc(label)}">Source</button><span class="src-tip" role="tooltip">${esc(f.source)}</span></span>`
 }
@@ -89,11 +89,11 @@ export const isList = (type) => type in LIST_COLS
 const ADD_LABEL = { words: 'word or sign', behaviours: 'behaviour', meds: 'medicine' }
 
 // The AI may return a list as strings, or a list field as plain text. Cope with all of them.
-function toRows (type, v) {
+export function toRows (type, v) {
   const first = LIST_COLS[type][0][0]
   return v.map((r) => (r && typeof r === 'object' ? r : { [first]: String(r ?? '') }))
 }
-const flatText = (v) => Array.isArray(v)
+export const flatText = (v) => Array.isArray(v)
   ? v.map((x) => (x && typeof x === 'object' ? Object.values(x).filter(Boolean).join(' – ') : x)).join('\n')
   : (v && typeof v === 'object' ? Object.values(v).filter(Boolean).join(' – ') : String(v ?? ''))
 
@@ -167,14 +167,7 @@ export function renderPlan (container, plan, { mode = 'view', age = null } = {})
       </div>
     </section>`).join('')
 
-  // Tap to show the source on touch screens (hover/focus works on desktop).
-  container.querySelectorAll('.src-btn').forEach((b) => b.addEventListener('click', (e) => {
-    e.preventDefault()
-    const wrap = b.closest('.src')
-    const open = !wrap.classList.contains('open')
-    container.querySelectorAll('.src.open').forEach((x) => x.classList.remove('open'))
-    wrap.classList.toggle('open', open)
-  }))
+  wireSources(container)
 
   if (editing) {
     // Text boxes grow with their content so nothing is hidden.
@@ -236,6 +229,17 @@ export function flagSummary (plan) {
   if (!flags.length) return '<div class="notice green">Every field is filled in.</div>'
   return `<div class="notice amber"><strong>${flags.length} field${flags.length === 1 ? '' : 's'} to check:</strong>
     ${flags.map((f) => `<a href="javascript:void 0" data-jump="${fid(f.path)}">${esc(f.label)}</a> (${f.status === 'missing' ? 'missing' : 'needs review'})`).join(', ')}</div>`
+}
+
+// Tap to show the source on touch screens (hover/focus works on desktop).
+export function wireSources (container) {
+  container.querySelectorAll('.src-btn').forEach((b) => b.addEventListener('click', (e) => {
+    e.preventDefault()
+    const wrap = b.closest('.src')
+    const open = !wrap.classList.contains('open')
+    container.querySelectorAll('.src.open').forEach((x) => x.classList.remove('open'))
+    wrap.classList.toggle('open', open)
+  }))
 }
 
 export function wireJumps (root) {

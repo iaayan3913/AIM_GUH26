@@ -1,0 +1,5 @@
+﻿# FOBE's real care plan template and logo: kept local, never pushed
+private/
+*.doc
+*.docx
+

@@ -1,6 +1,7 @@
 // Care plan screen: view, edit (every field), save as a new version.
 import { api, esc, fmtDate, fmtDateTime, reviewBadge, fullName, initials, toast, auth } from './util.js'
-import { renderPlan, collectPlan, flagSummary, wireJumps } from './planform.js'
+import { renderPlan, collectPlan, flagSummary, wireJumps, wireSources } from './planform.js'
+import { docSheetHtml } from './docsheet.js'
 
 const v = (f) => f?.value ?? null
 
@@ -12,7 +13,6 @@ export async function renderPlanPage (main, childId, { edit = false } = {}) {
   main.innerHTML = `
     <p class="no-print"><a href="#/">← All children</a></p>
     <div class="plan-top">
-      <div class="photo" aria-hidden="true">${esc(initials(names))}</div>
       <div class="plan-title">
         <h1>${esc(fullName(names))}</h1>
         <p class="sub">${meta.age != null ? `Age ${meta.age}` : 'Age unknown'} · ${esc(childId)} · Version saved ${esc(fmtDateTime(plan.saved_at))}</p>
@@ -42,7 +42,14 @@ export async function renderPlanPage (main, childId, { edit = false } = {}) {
   const actions = main.querySelector('#actions')
 
   const setMode = (editing) => {
-    renderPlan(form, plan, { mode: editing ? 'edit' : 'view', age: meta.age })
+    if (editing) {
+      renderPlan(form, plan, { mode: 'edit', age: meta.age })
+    } else {
+      // Preview in FOBE's own form layout, with amber flags + source quotes.
+      form.classList.remove('edit')
+      form.innerHTML = `<div class="plan-doc-wrap">${docSheetHtml(plan, meta, { interactive: true })}</div>`
+      wireSources(form)
+    }
     bar.hidden = !editing
     actions.hidden = editing
   }
