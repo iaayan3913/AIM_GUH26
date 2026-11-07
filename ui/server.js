@@ -31,7 +31,19 @@ if (!fs.existsSync(DB_DIR)) {
   console.error(`No database at ${DB_DIR}. Run: cd sync && npm install && npm run seed`)
   process.exit(1)
 }
-const db = await openDb(DB_DIR)
+// Only ONE process may open the office db (sync/data/office-pc). We open it once here and
+// start the office peer on the same db (inbox.js), so never run sync/demo-office.js alongside.
+let db
+try {
+  db = await openDb(DB_DIR) // picks up FOBE_DB_PASSPHRASE itself
+} catch (e) {
+  if (/lock/i.test(`${e.code} ${e.message}`)) {
+    console.error(`The care plan database is already open in another process.\nStop sync/demo-office.js (or another "npm start") and try again.\n(${e.message})`)
+  } else {
+    console.error(`Could not open the care plan database: ${e.message}`)
+  }
+  process.exit(1)
+}
 const { ai, name: aiName } = await loadAi()
 console.log(`[db] ${DB_DIR} (writable: ${db.writable})`)
 console.log(`[ai] using ${aiName}`)
