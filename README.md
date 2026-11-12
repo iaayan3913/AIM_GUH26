@@ -1,10 +1,10 @@
-# FOBE Care Plan AI
+# HearMe (FOBE Care Plan AI)
 
 **Turn a family visit into a draft care plan in minutes, without the child's data ever leaving the building.**
 
-FOBE (Friends of Bright Eyes) is a London charity supporting 100+ disabled children. Today a family worker meets parents for up to 4 hours, takes handwritten notes, then spends about 2 hours writing each care plan by hand: 200+ hours a year of writing, and time spent writing instead of listening to the family.
+FOBE (Friends of Bright Eyes) is a Luton charity supporting 100+ disabled children. Today a family worker meets parents for up to 4 hours, takes handwritten notes, then spends about 2 hours writing each care plan by hand: 200+ hours a year of writing, and time spent writing instead of listening to the family.
 
-FOBE Care Plan AI records the visit (with consent), transcribes and translates it **on the office PC**, and drafts the care plan in FOBE's own format. The worker checks it, signs it off with a YubiKey tap, and prints it for the secure folder.
+HearME records the visit (with consent), transcribes and translates it **on the office PC**, and drafts the care plan in FOBE's own format. The worker checks it, signs it off with a YubiKey tap, and prints it for the secure folder.
 
 > Built in one day at the **Great Uni Hack 2026 (Tether track)**: AI that runs 100% locally, with peer-to-peer distribution. All child data in this repo is fake.
 
@@ -127,5 +127,5 @@ The care plan format is in [shared/careplan.example.json](shared/careplan.exampl
 Built at the Great Uni Hack 2026 by:
 
 - **Iyaaz Ahmed:** local AI (QVAC)
-- **Mehraz:** database, peer-to-peer and the work-phone app
+- **Mehraz Saif:** database, peer-to-peer and the work-phone app
 - **Aayan Islam:** web app, YubiKey sign-off and integration
